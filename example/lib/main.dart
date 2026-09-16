@@ -9,7 +9,7 @@ class ExampleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Адреса Туркменистана',
+      title: 'Turkmenistan Addresses',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF00857A),
@@ -48,8 +48,8 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _open() async {
     try {
       final db = await loadTurkmenistanAddresses();
-      // Ключи считаются один раз. Без прогрева за них платил бы первый
-      // же набранный символ — тридцать миллисекунд под пальцем.
+      // The keys are built once. Without the warm-up the very first
+      // keystroke would pay for them — thirty milliseconds under a finger.
       db.warmUp();
       if (mounted) setState(() => _db = db);
     } catch (error) {
@@ -60,8 +60,8 @@ class _SearchScreenState extends State<SearchScreen> {
   void _search(String query) {
     final db = _db;
     if (db == null) return;
-    // Запрос стоит около миллисекунды, поэтому ищем на каждое нажатие:
-    // отложенный поиск тут нечего экономить.
+    // A query costs about a millisecond, so we search on every keystroke:
+    // there is nothing here for a debounce to save.
     final started = Stopwatch()..start();
     final hits = db.search(query, limit: 50);
     started.stop();
@@ -81,14 +81,14 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Адреса Туркменистана'),
+        title: const Text('Turkmenistan Addresses'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(64),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: SearchBar(
               controller: _field,
-              hintText: 'Город, улица или дом',
+              hintText: 'City, street or house',
               leading: const Icon(Icons.search),
               trailing: [
                 if (_field.text.isNotEmpty)
@@ -113,7 +113,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_error != null) {
       return _Centered(
         icon: Icons.error_outline,
-        title: 'База не открылась',
+        title: 'The database did not open',
         subtitle: '$_error',
       );
     }
@@ -130,14 +130,14 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_hits.isEmpty) {
       return const _Centered(
         icon: Icons.search_off,
-        title: 'Ничего не нашлось',
-        subtitle: 'Слово ищется с начала: «rahat» не найдёт «Parahat»',
+        title: 'Nothing found',
+        subtitle: 'Words match from their start: «rahat» will not find «Parahat»',
       );
     }
     return Column(
       children: [
-        _Stats(text: '${_hits.length} совпадений за '
-            '${(_spent.inMicroseconds / 1000).toStringAsFixed(1)} мс'),
+        _Stats(text: '${_hits.length} matches in '
+            '${(_spent.inMicroseconds / 1000).toStringAsFixed(1)} ms'),
         Expanded(
           child: ListView.separated(
             itemCount: _hits.length,
@@ -169,18 +169,18 @@ class _HitTile extends StatelessWidget {
           Icons.signpost_outlined,
           colors.tertiary,
           [
-            'улица',
+            'street',
             if (value.place != null) value.place!.name,
-            '${db.housesOn(value.id).length} домов',
+            '${db.housesOn(value.id).length} houses',
           ].join(' · '),
         ),
       AddressHit(:final value) => (
           Icons.home_outlined,
           colors.secondary,
           [
-            'дом',
+            'house',
             if (value.place != null) value.place!.name,
-            if (!value.streetIsExact) 'улица подобрана',
+            if (!value.streetIsExact) 'street inferred',
           ].join(' · '),
         ),
     };
@@ -214,13 +214,13 @@ IconData _placeIcon(PlaceType type) => switch (type) {
     };
 
 String _placeLabel(PlaceType type) => switch (type) {
-      PlaceType.city => 'город',
-      PlaceType.town => 'город',
-      PlaceType.village => 'село',
-      PlaceType.hamlet => 'посёлок',
-      PlaceType.suburb => 'район',
-      PlaceType.neighbourhood => 'микрорайон',
-      PlaceType.locality => 'местность',
+      PlaceType.city => 'city',
+      PlaceType.town => 'town',
+      PlaceType.village => 'village',
+      PlaceType.hamlet => 'hamlet',
+      PlaceType.suburb => 'suburb',
+      PlaceType.neighbourhood => 'neighbourhood',
+      PlaceType.locality => 'locality',
     };
 
 void _showDetails(BuildContext context, AddressDatabase db, SearchHit hit) {
@@ -242,26 +242,26 @@ void _showDetails(BuildContext context, AddressDatabase db, SearchHit hit) {
             ),
             if (hit case AddressHit(:final value)) ...[
               const SizedBox(height: 16),
-              _Fact(label: 'Улица', value: value.street.name),
+              _Fact(label: 'Street', value: value.street.name),
               _Fact(
-                label: 'Откуда улица',
+                label: 'Street came from',
                 value: value.streetIsExact
-                    ? 'из addr:street'
-                    : 'подобрана по ближайшей дороге',
+                    ? 'addr:street'
+                    : 'the nearest road',
               ),
               if (value.place != null)
-                _Fact(label: 'Населённый пункт', value: value.place!.name),
+                _Fact(label: 'Settlement', value: value.place!.name),
             ],
             const SizedBox(height: 16),
-            Text('Рядом, в 150 м',
+            Text('Within 150 m',
                 style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             if (near.isEmpty)
-              const Text('— ничего')
+              const Text('— nothing')
             else
               for (final house in near)
                 Text('${house.street.name}, ${house.number}  ·  '
-                    '${distanceMeters(hit.lat, hit.lon, house.lat, house.lon).round()} м'),
+                    '${distanceMeters(hit.lat, hit.lon, house.lat, house.lon).round()} m'),
           ],
         ),
       );
@@ -302,8 +302,8 @@ class StreetScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Дома отсортированы по улице ещё при сборке, поэтому берутся одним
-    // куском, а не перебором семи тысяч записей.
+    // Houses are sorted by street at build time, so they come back as one
+    // slice instead of a scan over seven thousand records.
     final houses = db.housesOn(street.id);
     return Scaffold(
       appBar: AppBar(
@@ -315,7 +315,7 @@ class StreetScreen extends StatelessWidget {
             child: Text(
               [
                 if (street.place != null) street.place!.name,
-                '${houses.length} домов',
+                '${houses.length} houses',
               ].join(' · '),
             ),
           ),
@@ -324,8 +324,8 @@ class StreetScreen extends StatelessWidget {
       body: houses.isEmpty
           ? const _Centered(
               icon: Icons.home_outlined,
-              title: 'Домов с номерами нет',
-              subtitle: '95% зданий в OSM не несут addr:housenumber',
+              title: 'No numbered houses',
+              subtitle: '95% of buildings in OSM carry no addr:housenumber',
             )
           : ListView.separated(
               itemCount: houses.length,
@@ -345,7 +345,7 @@ class StreetScreen extends StatelessWidget {
                   subtitle: Text(house.streetIsExact
                       ? '${house.lat.toStringAsFixed(5)}, '
                           '${house.lon.toStringAsFixed(5)}'
-                      : 'улица подобрана · '
+                      : 'street inferred · '
                           '${house.lat.toStringAsFixed(5)}, '
                           '${house.lon.toStringAsFixed(5)}'),
                   onTap: () => _showDetails(context, db, AddressHit(house)),
@@ -363,10 +363,10 @@ class _Welcome extends StatelessWidget {
   final ValueChanged<String> onPick;
 
   static const _examples = <(String, String)>[
-    ('par 2/4 1', 'слова с начала, в любом порядке'),
-    ('gorogly', 'без диакритики: ö, ç, ň'),
-    ('mary', 'город впереди улиц и домов'),
-    ('gorogly kocesi gyzylarbat', 'город отделяет одноимённые улицы'),
+    ('par 2/4 1', 'words match from their start, in any order'),
+    ('gorogly', 'diacritics folded: ö, ç, ň'),
+    ('mary', 'the city comes before streets and houses'),
+    ('gorogly kocesi gyzylarbat', 'the settlement separates namesakes'),
   ];
 
   @override
@@ -375,15 +375,15 @@ class _Welcome extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        Text('Оффлайн, целиком на устройстве', style: style.titleMedium),
+        Text('Offline, entirely on device', style: style.titleMedium),
         const SizedBox(height: 8),
         Text(
-          '${db.placeCount} населённых пунктов, ${db.streetCount} улиц, '
-          '${db.addressCount} домов — 292 КБ в ассете.',
+          '${db.placeCount} settlements, ${db.streetCount} streets, '
+          '${db.addressCount} houses — a 292 KB asset.',
           style: style.bodyMedium,
         ),
         const SizedBox(height: 24),
-        Text('Попробуйте', style: style.titleMedium),
+        Text('Try', style: style.titleMedium),
         const SizedBox(height: 8),
         for (final (query, hint) in _examples)
           Card(
