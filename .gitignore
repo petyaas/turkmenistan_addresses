@@ -1,0 +1,20 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Сгенерированные файлы iOS: несут абсолютные пути сборочной машины.
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/ephemeral/
+**/ios/Pods/
+**/ios/.symlinks/
+
+# Редакторы и система
+.DS_Store
+.idea/
+*.iml
+.vscode/

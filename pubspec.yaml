@@ -1,0 +1,23 @@
+name: turkmenistan_addresses
+description: >-
+  Оффлайновый поиск адресов Туркменистана: города и сёла, улицы и дома.
+  База встроена в пакет, сеть не нужна.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  assets:
+    - assets/turkmenistan.adb
