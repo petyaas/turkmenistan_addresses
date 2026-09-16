@@ -1,15 +1,21 @@
-# Пример к turkmenistan_addresses
+# turkmenistan_addresses example
 
-Поиск адресов Туркменистана без сети: набор запроса, список домов на
-улице, карточка дома.
+Offline address search for Turkmenistan: search as you type, the houses
+on a street, and a house card showing where its street came from.
 
 ```bash
 flutter run
 ```
 
-Прогон по приложению на устройстве или симуляторе — набрать запрос,
-открыть улицу, открыть дом:
+A run through the app on a device or simulator — type a query, open a
+street, open a house:
 
 ```bash
 flutter test integration_test/app_test.dart
 ```
+
+---
+
+Поиск адресов Туркменистана без сети: набор запроса, список домов на
+улице, карточка дома с признаком происхождения улицы. Запуск — командами
+выше.

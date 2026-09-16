@@ -1,18 +1,21 @@
 # turkmenistan_addresses
 
-Оффлайновый поиск адресов Туркменистана: 2 039 населённых пунктов (из них
-52 города), 3 555 улиц и 6 993 дома. База собрана из OpenStreetMap и лежит
-внутри пакета — сеть не нужна ни при загрузке, ни при запросе.
+**English** · [Русский](README.ru.md)
 
-Ассет весит **292 КБ**.
+Offline address search for Turkmenistan: 2,039 settlements (52 of them
+cities), 3,555 streets and 6,993 houses. The database is built from
+OpenStreetMap and ships inside the package — no network is used at load
+time or at query time.
 
-## Как пользоваться
+The asset is **292 KB**.
+
+## Usage
 
 ```dart
 import 'package:turkmenistan_addresses/turkmenistan_addresses.dart';
 
 final db = await loadTurkmenistanAddresses();
-db.warmUp(); // не обязательно; переносит 30 мс с первого запроса сюда
+db.warmUp(); // optional; moves 30 ms off the first query
 
 for (final hit in db.search('par 2/4 1')) {
   print('${hit.title} — ${hit.place?.name}  ${hit.lat}, ${hit.lon}');
@@ -20,112 +23,119 @@ for (final hit in db.search('par 2/4 1')) {
 // Parahat 2/4, 1 — Aşgabat  37.8981436, 58.385109
 ```
 
-Строка выдачи разбирается по типу:
+A result is destructured by kind:
 
 ```dart
 switch (hit) {
-  case PlaceHit(:final value):   // город, село, микрорайон
+  case PlaceHit(:final value):   // city, village, neighbourhood
     print('${value.name}, ${value.type}');
-  case StreetHit(:final value):  // улица
+  case StreetHit(:final value):  // street
     print(db.housesOn(value.id).length);
-  case AddressHit(:final value): // дом
+  case AddressHit(:final value): // house
     print('${value.street.name}, ${value.number}');
 }
 ```
 
-Ещё есть `nearestAddress(lat, lon)`, `addressesNear(lat, lon)` и
+There is also `nearestAddress(lat, lon)`, `addressesNear(lat, lon)` and
 `housesOn(streetId)`.
 
-Рабочий пример — в `example/`: поиск по мере набора, список домов на
-улице, карточка дома с признаком происхождения улицы.
+A working example lives in `example/`: search as you type, the list of
+houses on a street, and a house card showing where its street came from.
 
 ```bash
 cd example && flutter run
 ```
 
-## Как работает поиск
+## How the search works
 
-Каждое слово запроса должно быть **началом какого-нибудь слова** в записи,
-порядок не важен. Поэтому `par 2/4 1` находит `Parahat 2/4, 1`: требовать
-запятую и точное написание нельзя, набирают на ходу и по памяти.
+Every word of the query must be **the start of some word** in the entry,
+and their order does not matter. That is why `par 2/4 1` finds
+`Parahat 2/4, 1`: demanding the comma and the exact spelling is no good
+when people type from memory, on the move.
 
-Совпадение с середины слова не принимается намеренно — `rahat` не найдёт
-`Parahat`, иначе выдача заполняется случайными попаданиями.
+Matching from mid-word is rejected on purpose — `rahat` will not find
+`Parahat`, or the results fill up with accidental hits.
 
-Диакритика свёрнута: туркменские названия пишутся через ä, ç, ň, ö, ş, ü,
-ý, а набирать их никто не станет — `gorogly` находит `Görogly köçesi`.
-Дробь и дефис при этом остаются, они часть номера дома: `2/4`, `12-а`.
+Diacritics are folded: Turkmen names use ä, ç, ň, ö, ş, ü, ý and nobody
+is going to type them, so `gorogly` finds `Görogly köçesi`. The slash and
+the hyphen survive folding — they are part of house numbers: `2/4`,
+`12-а`.
 
-Ключ улицы несёт и её город, поэтому `gorogly kocesi gyzylarbat` отделяет
-одну `Görogly köçesi` от девяти одноимённых в других городах и сёлах.
+A street's search key carries its settlement, so
+`gorogly kocesi gyzylarbat` separates one `Görogly köçesi` from the nine
+others in different towns and villages.
 
-Порядок выдачи: точное начало записи → совпадение в названии против
-совпадения в городе → вес записи (город → село → улица → дом) → короткое
-название вперёд длинного. Поэтому `mary` — это сначала город Мары, а не
-дома на улице Мары в Ашхабаде.
+Ranking, in order: an exact prefix of the whole entry → a match in the
+name versus a match in the settlement → the weight of the entry (city →
+village → street → house) → shorter name before longer. That is why
+`mary` gives you the city of Mary first, not houses on a street named
+Mary in Ashgabat.
 
-Пространственного и префиксного индексов нет намеренно: записей
-тринадцать тысяч, полный перебор занимает около миллисекунды — меньше
-одного кадра. Загрузка ничего не копирует, секции остаются
-представлениями над буфером ассета.
+There is deliberately no spatial or prefix index: with thirteen thousand
+entries a full scan takes about a millisecond — less than one frame.
+Loading copies nothing; the sections stay views over the asset's buffer.
 
-Измерено под `flutter test` (JIT, релиз быстрее):
+Measured under `flutter test` (JIT; release is faster):
 
 | | |
 |---|---|
-| разбор файла | 4 мс |
-| первый запрос (считает ключи) | 33 мс, снимается через `warmUp()` |
-| запрос | 0,8–1,4 мс |
-| `nearestAddress` | 0,2 мс |
+| parsing the file | 4 ms |
+| first query (builds the keys) | 33 ms, removed by `warmUp()` |
+| query | 0.8–1.4 ms |
+| `nearestAddress` | 0.2 ms |
 
-## Чего ждать от данных
+## What to expect from the data
 
-Данные — это OSM, со всеми его особенностями.
+The data is OSM, with everything that implies.
 
-**У 24% домов улица подобрана, а не записана.** `addr:street` есть у 5 327
-домов из 6 993; остальным улица определена по ближайшей дороге в пределах
-150 м. Признак лежит в `Address.streetIsExact` — показывать адрес можно в
-обоих случаях, а вот утверждать, что так записано в OSM, только в первом.
+**For 24% of houses the street was inferred, not recorded.**
+`addr:street` is present on 5,327 houses out of 6,993; the rest got their
+street from the nearest road within 150 m. The flag is
+`Address.streetIsExact` — showing the address is fine either way, but
+claiming that OSM says so is only fine in the first case.
 
-**Дома, у которых улицу определить не удалось, выброшены** — 416 штук.
-Голый номер без улицы искать невозможно: «дом 12» есть в каждом квартале.
+**Houses whose street could not be determined were dropped** — 416 of
+them. A bare number is unsearchable: "house 12" exists in every block.
 
-**Домов в стране много больше.** В экстракте 160 149 зданий, и 95% из них
-не несут `addr:housenumber` вовсе. Никакая обработка не покажет номер,
-которого в OSM нет.
+**The country has far more houses than this.** The extract holds 160,149
+buildings and 95% of them carry no `addr:housenumber` at all. No amount
+of processing will show a number that is not in OSM.
 
-**Одинаковые номера разных домов сохранены** — их больше половины базы.
-Схлопывать их нельзя: в Parahat 4 семь разных зданий с номером «2».
-А вот один дом, размеченный дважды (контур здания плюс адресная точка
-внутри него), сведён в одну запись — иначе выдача двоится.
+**Identical numbers on different houses are kept** — they are more than
+half the database. Collapsing them would be wrong: Parahat 4 has seven
+different buildings numbered "2". What *is* collapsed is a single house
+mapped twice — a building outline plus an address node inside it —
+otherwise every such house appears in the results twice.
 
-## Пересборка
+## Rebuilding
 
-Готовая база лежит в `assets/` — пересобирать её нужно только чтобы
-подтянуть свежий OSM. Нужен экстракт Туркменистана в формате `.pbf`
-(например, с [download.geofabrik.de](https://download.geofabrik.de/asia/turkmenistan.html)),
-он в репозиторий не кладётся: 23 МБ входных данных против 292 КБ выходных.
+The finished database is in `assets/`; you only need to rebuild it to
+pick up fresher OSM data. You will need a Turkmenistan extract in `.pbf`
+format (from [download.geofabrik.de](https://download.geofabrik.de/asia/turkmenistan.html),
+for instance). It is not kept in the repository: 23 MB of input against
+292 KB of output.
 
 ```bash
-python3 -m venv tool/.venv && tool/.venv/bin/pip install osmium   # один раз
+python3 -m venv tool/.venv && tool/.venv/bin/pip install osmium   # once
 tool/.venv/bin/python tool/build_address_db.py turkmenistan.pbf \
     assets/turkmenistan.adb
 ```
 
-Сборка занимает около двенадцати секунд и печатает, что именно она
-выбросила и почему.
+The build takes about twelve seconds and prints exactly what it dropped
+and why.
 
-Формат описан в `tool/address_db_format.py`; `lib/src/address_db.dart` —
-парная реализация того же layout. **Меняешь один — меняй и другой**, с
-подъёмом `FORMAT_VERSION` / `AddressDatabase.formatVersion`: загрузчик
-отказывается читать чужую версию, а не разбирает мусор. То же касается
-свёртки диакритики и набора сохраняемых знаков — разойдутся, и набранный
-текст перестанет встречаться с названиями, молча и целиком.
+The format is described in `tool/address_db_format.py`;
+`lib/src/address_db.dart` is a paired implementation of the same layout.
+**Change one and you must change the other**, raising `FORMAT_VERSION` /
+`AddressDatabase.formatVersion` together: the loader refuses a version it
+does not know rather than reading garbage. The same goes for diacritic
+folding and the kept-punctuation set — let them drift apart and typed
+text stops meeting the stored names, silently and completely.
 
-## Лицензия
+## License
 
-Код — MIT, см. `LICENSE`.
+Code — MIT, see `LICENSE`.
 
-Данные в `assets/turkmenistan.adb` получены из OpenStreetMap и
-распространяются на условиях **ODbL**: © участники OpenStreetMap.
-Приложение, которое их использует, обязано указать этот источник.
+The data in `assets/turkmenistan.adb` comes from OpenStreetMap and is
+distributed under the **ODbL**: © OpenStreetMap contributors. An
+application using it must credit that source.
