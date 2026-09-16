@@ -1,20 +1,30 @@
-# Сборка адресной базы
+# Building the address database
 
-`build_address_db.py` делает `assets/turkmenistan.adb` из экстракта OSM,
-`address_db_format.py` описывает формат файла и сворачивает названия в
-ключи поиска.
+`build_address_db.py` turns an OpenStreetMap extract into
+`assets/turkmenistan.adb`; `address_db_format.py` describes the file
+format and folds names into search keys.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install osmium
 .venv/bin/python build_address_db.py ../turkmenistan.pbf ../assets/turkmenistan.adb
 ```
 
-`address_db_format.py` и `../lib/src/address_db.dart` описывают один и тот
-же двоичный layout. **Меняешь один — меняй и другой**, с подъёмом
-`FORMAT_VERSION` и `AddressDatabase.formatVersion`: загрузчик отказывается
-читать чужую версию, а не разбирает мусор.
+The build takes about twelve seconds and prints exactly what it dropped
+and why — junk house numbers, duplicate settlements, houses mapped twice,
+houses with no street nearby.
 
-То же касается `search_key` здесь и `normalize` в
-`../lib/src/address_search.dart`: разойдутся — и набранный текст
-перестанет встречаться с названиями, молча и целиком. За этим следит тест
-`../test/address_db_test.dart`.
+`address_db_format.py` and `../lib/src/address_db.dart` describe the same
+binary layout. **Change one and you must change the other**, raising
+`FORMAT_VERSION` and `AddressDatabase.formatVersion` together: the loader
+refuses a version it does not know rather than reading garbage.
+
+The same goes for `search_key` here and `normalize` in
+`../lib/src/address_search.dart`: let them drift apart and typed text
+stops meeting the stored names, silently and completely. A test in
+`../test/address_db_test.dart` guards exactly that.
+
+---
+
+`address_db_format.py` и `../lib/src/address_db.dart` описывают один и тот
+же двоичный layout — меняешь один, меняй и другой, с подъёмом версии
+формата. То же касается `search_key` и `normalize`.
