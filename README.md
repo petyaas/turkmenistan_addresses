@@ -2,6 +2,8 @@
 
 **English** · [Русский](README.ru.md)
 
+[![pub package](https://img.shields.io/pub/v/turkmenistan_addresses.svg)](https://pub.dev/packages/turkmenistan_addresses)
+
 Offline address search for Turkmenistan: 2,039 settlements (52 of them
 cities), 3,555 streets and 6,993 houses. The database is built from
 OpenStreetMap and ships inside the package — no network is used at load

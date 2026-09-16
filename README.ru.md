@@ -2,6 +2,8 @@
 
 [English](README.md) · **Русский**
 
+[![pub package](https://img.shields.io/pub/v/turkmenistan_addresses.svg)](https://pub.dev/packages/turkmenistan_addresses)
+
 Оффлайновый поиск адресов Туркменистана: 2 039 населённых пунктов (из них
 52 города), 3 555 улиц и 6 993 дома. База собрана из OpenStreetMap и лежит
 внутри пакета — сеть не нужна ни при загрузке, ни при запросе.
