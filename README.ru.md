@@ -10,6 +10,15 @@
 
 Ассет весит **292 КБ**.
 
+На pub.dev: <https://pub.dev/packages/turkmenistan_addresses>
+
+## Установка
+
+```yaml
+dependencies:
+  turkmenistan_addresses: ^1.0.0
+```
+
 ## Как пользоваться
 
 ```dart

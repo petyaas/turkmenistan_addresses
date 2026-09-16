@@ -11,6 +11,15 @@ time or at query time.
 
 The asset is **292 KB**.
 
+On pub.dev: <https://pub.dev/packages/turkmenistan_addresses>
+
+## Installation
+
+```yaml
+dependencies:
+  turkmenistan_addresses: ^1.0.0
+```
+
 ## Usage
 
 ```dart
