@@ -3,8 +3,15 @@ description: >-
   Offline address search for Turkmenistan: cities and villages, streets
   and houses. The database ships inside the package, no network needed.
 version: 1.0.0
-publish_to: none
 repository: https://github.com/petyaas/turkmenistan_addresses
+issue_tracker: https://github.com/petyaas/turkmenistan_addresses/issues
+
+topics:
+  - geocoding
+  - offline
+  - openstreetmap
+  - addresses
+  - turkmenistan
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

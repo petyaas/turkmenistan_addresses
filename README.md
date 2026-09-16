@@ -137,5 +137,5 @@ text stops meeting the stored names, silently and completely.
 Code — MIT, see `LICENSE`.
 
 The data in `assets/turkmenistan.adb` comes from OpenStreetMap and is
-distributed under the **ODbL**: © OpenStreetMap contributors. An
-application using it must credit that source.
+distributed under the **ODbL** — see `NOTICE`. An application using it
+must credit © OpenStreetMap contributors.

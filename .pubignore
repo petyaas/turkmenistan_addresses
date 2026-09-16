@@ -1,0 +1,18 @@
+# NOTE: the presence of .pubignore makes pub ignore .gitignore entirely,
+# so everything that must stay out of the archive is listed here.
+.dart_tool/
+build/
+pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+.idea/
+*.iml
+
+# The example's generated Xcode project: pub.dev has no use for it and it
+# only bloats the archive; flutter create brings it back in one command.
+example/ios/
+example/.metadata

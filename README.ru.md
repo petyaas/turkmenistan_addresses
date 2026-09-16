@@ -129,5 +129,5 @@ tool/.venv/bin/python tool/build_address_db.py turkmenistan.pbf \
 Код — MIT, см. `LICENSE`.
 
 Данные в `assets/turkmenistan.adb` получены из OpenStreetMap и
-распространяются на условиях **ODbL**: © участники OpenStreetMap.
-Приложение, которое их использует, обязано указать этот источник.
+распространяются на условиях **ODbL** — см. `NOTICE`. Приложение,
+которое их использует, обязано указать © участники OpenStreetMap.
