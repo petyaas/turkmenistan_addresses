@@ -13,6 +13,11 @@ pubspec.lock
 **/ios/Pods/
 **/ios/.symlinks/
 
+# Python build tooling
+__pycache__/
+*.pyc
+.venv/
+
 # Editors and OS
 .DS_Store
 .idea/
