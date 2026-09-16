@@ -1,6 +1,6 @@
-/// Тип населённого пункта. Порядок задаёт вес в выдаче и обязан совпадать
-/// с PLACE_* в `tool/address_db_format.py`: город важнее села, село важнее
-/// безымянной местности.
+/// The kind of a settlement. The order sets its weight in the results and
+/// must match PLACE_* in `tool/address_db_format.py`: a city outranks a
+/// village, a village outranks a nameless locality.
 enum PlaceType {
   city,
   town,
@@ -11,7 +11,7 @@ enum PlaceType {
   locality,
 }
 
-/// Населённый пункт: город, село, посёлок, микрорайон.
+/// A settlement: a city, a village, a neighbourhood.
 class Place {
   const Place({
     required this.id,
@@ -21,9 +21,9 @@ class Place {
     required this.lon,
   });
 
-  /// Позиция в базе. Постоянна для собранного файла и меняется при
-  /// пересборке — хранить её на диске нельзя, а сравнивать и передавать
-  /// обратно в базу можно.
+  /// Position in the database. Stable for a given file and different after
+  /// a rebuild — so it must not be persisted, but it can be compared and
+  /// handed back to the database.
   final int id;
 
   final String name;
@@ -35,8 +35,9 @@ class Place {
   String toString() => name;
 }
 
-/// Улица. Одноимённые улицы в разных городах — это разные [Street]:
-/// в базе они разведены по расстоянию, иначе адрес уводит в другой город.
+/// A street. Streets of the same name in different towns are separate
+/// [Street]s: the database keeps them apart by distance, otherwise an
+/// address sends you to the wrong town.
 class Street {
   const Street({
     required this.id,
@@ -46,16 +47,16 @@ class Street {
     required this.lon,
   });
 
-  /// Позиция в базе: её принимает [AddressDatabase.housesOn].
+  /// Position in the database; [AddressDatabase.housesOn] takes it.
   final int id;
 
   final String name;
 
-  /// Город или село, в котором лежит улица. null у трасс и пустынных
-  /// дорог — ближайшего населённого пункта там нет на десятки километров.
+  /// The city or village the street lies in. null for highways and desert
+  /// roads — there is no settlement within tens of kilometres.
   final Place? place;
 
-  /// Середина улицы, а не её начало.
+  /// The middle of the street, not its start.
   final double lat;
   final double lon;
 
@@ -63,7 +64,7 @@ class Street {
   String toString() => place == null ? name : '$name, ${place!.name}';
 }
 
-/// Дом с номером.
+/// A numbered house.
 class Address {
   const Address({
     required this.street,
@@ -75,15 +76,15 @@ class Address {
 
   final Street street;
 
-  /// Номер как он записан в OSM: «12», «2/4», «111(A)», «1A».
+  /// The number as OSM records it: "12", "2/4", "111(A)", "1A".
   final String number;
 
-  /// Улица взята из тега `addr:street` дома (true) или подобрана по
-  /// ближайшей дороге (false).
+  /// Whether the street came from the house's own `addr:street` tag (true)
+  /// or was inferred from the nearest road (false).
   ///
-  /// Тег есть у 76% домов. Остальным улица определена геометрически и
-  /// может быть не той — показывать адрес можно, а вот утверждать, что
-  /// так записано в OSM, нельзя.
+  /// The tag is present on 76% of houses. The rest had their street
+  /// determined geometrically and it may be the wrong one — fine to show
+  /// either way, not fine to claim OSM says so.
   final bool streetIsExact;
 
   final double lat;
@@ -95,7 +96,7 @@ class Address {
   String toString() => '${street.name}, $number';
 }
 
-/// Строка выдачи. Разбирается через `switch`:
+/// A row of results. Destructure it with `switch`:
 ///
 /// ```dart
 /// switch (hit) {
@@ -107,11 +108,11 @@ class Address {
 sealed class SearchHit {
   const SearchHit();
 
-  /// Что показать строкой: «Aşgabat», «Görogly köçesi», «Görogly köçesi, 8».
+  /// What to show as the line: "Aşgabat", "Görogly köçesi",
+  /// "Görogly köçesi, 8".
   String get title;
 
-  /// Населённый пункт, к которому относится находка. У самого населённого
-  /// пункта — он сам.
+  /// The settlement this hit belongs to. For a settlement, itself.
   Place? get place;
 
   double get lat;

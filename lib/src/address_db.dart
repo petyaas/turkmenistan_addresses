@@ -5,14 +5,15 @@ import 'dart:typed_data';
 import 'address_search.dart';
 import 'models.dart';
 
-/// Адресная база Туркменистана: населённые пункты, улицы и дома.
+/// The address database of Turkmenistan: settlements, streets and houses.
 ///
-/// Layout файла описан в `tool/address_db_format.py` — парная реализация,
-/// правки нужны в обоих местах с подъёмом [formatVersion]. Загрузчик
-/// отказывается читать чужую версию, а не разбирает мусор.
+/// The file layout is described in `tool/address_db_format.py` — a paired
+/// implementation, so a change belongs in both places, with [formatVersion]
+/// raised together. The loader refuses a version it does not know rather
+/// than reading garbage.
 ///
-/// Данные лежат типизированными представлениями над одним буфером и не
-/// копируются: строки собираются только тогда, когда их спросили.
+/// The data sits as typed views over a single buffer and is never copied:
+/// strings are assembled only when asked for.
 class AddressDatabase {
   AddressDatabase._({
     required Int32List placeLat,
@@ -52,7 +53,7 @@ class AddressDatabase {
 
   static const int formatVersion = 1;
 
-  /// 'TMAB', прочитанные как uint32 little-endian.
+  /// 'TMAB' read as a little-endian uint32.
   static const int _magic = 0x42414D54;
 
   static const int _sPlaceLat = 0;
@@ -75,7 +76,7 @@ class AddressDatabase {
 
   static const int _headerBytes = 32;
 
-  /// Улица без населённого пункта: NO_REF в `address_db_format.py`.
+  /// A street with no settlement: NO_REF in `address_db_format.py`.
   static const int _noRef = 0xFFFFFFFF;
 
   final Int32List _placeLat;
@@ -101,8 +102,8 @@ class AddressDatabase {
   final List<Place?> _places;
   final List<Street?> _streets;
 
-  // Ключи поиска считаются при первом запросе, а не при загрузке: тому,
-  // кто открыл базу ради nearestAddress, платить за них незачем.
+  // Search keys are built on the first query, not at load time: whoever
+  // opened the database for nearestAddress alone should not pay for them.
   List<String>? _placeKeys;
   List<String>? _streetKeys;
   Uint16List? _streetNameKeyLength;
@@ -113,11 +114,11 @@ class AddressDatabase {
   int get streetCount => _streetLat.length;
   int get addressCount => _addressLat.length;
 
-  /// Разбирает содержимое `.adb`.
+  /// Parses the contents of an `.adb` file.
   factory AddressDatabase.parse(Uint8List bytes) {
     var source = bytes;
-    // Представления над буфером требуют выравнивания на 4 байта, а
-    // rootBundle отдаёт срез общего буфера с произвольным смещением.
+    // Typed views need 4-byte alignment, and rootBundle hands back a
+    // slice of a shared buffer at an arbitrary offset.
     if (source.offsetInBytes % 4 != 0) {
       source = Uint8List.fromList(source);
     }
@@ -125,18 +126,18 @@ class AddressDatabase {
     final base = source.offsetInBytes;
 
     if (source.length < _headerBytes + _sectionCount * 8) {
-      throw const FormatException('адресная база обрезана');
+      throw const FormatException('the address database is truncated');
     }
 
     final header = ByteData.view(buffer, base, _headerBytes);
     if (header.getUint32(0, Endian.little) != _magic) {
-      throw const FormatException('это не адресная база');
+      throw const FormatException('this is not an address database');
     }
     final version = header.getUint32(4, Endian.little);
     if (version != formatVersion) {
       throw FormatException(
-        'адресная база версии $version, пакет ожидает $formatVersion — '
-        'пересоберите ассет через tool/build_address_db.py',
+        'address database version $version, the package expects '
+        '$formatVersion — rebuild the asset with tool/build_address_db.py',
       );
     }
 
@@ -185,8 +186,8 @@ class AddressDatabase {
     final place = Place(
       id: index,
       name: _string(_placeName[index]),
-      // Значение из файла может опередить пакет, если база собрана новее —
-      // лучше показать местностью, чем упасть на неизвестном типе.
+      // A file built newer than this package may carry a type it does not
+      // know — better to show it as a locality than to crash on it.
       type: raw < PlaceType.values.length
           ? PlaceType.values[raw]
           : PlaceType.locality,
@@ -228,11 +229,11 @@ class AddressDatabase {
         lon: _addressLon[index] / 1e7,
       );
 
-  /// Все дома на улице, в том порядке, в каком они лежат в базе.
+  /// Every house on the street, in the order the database holds them.
   ///
-  /// Дома отсортированы по улице ещё при сборке, поэтому нужные лежат
-  /// одним куском — его границы находятся двоичным поиском, без перебора
-  /// семи тысяч записей.
+  /// Houses are sorted by street at build time, so the ones asked for lie
+  /// in one slice — its bounds are found by binary search, without a scan
+  /// over seven thousand records.
   List<Address> housesOn(int streetId) {
     final from = _lowerBound(streetId);
     final to = _lowerBound(streetId + 1);
@@ -253,11 +254,12 @@ class AddressDatabase {
     return low;
   }
 
-  /// Ближайший дом к точке, не дальше [maxMeters]. null, если такого нет.
+  /// The nearest house to a point, within [maxMeters]. null if there is
+  /// none.
   ///
-  /// Пространственного индекса нет намеренно: семь тысяч точек
-  /// перебираются за доли миллисекунды, а сетка на всю страну заняла бы
-  /// больше самих данных.
+  /// There is deliberately no spatial index: seven thousand points scan in
+  /// a fraction of a millisecond, while a country-wide grid would outweigh
+  /// the data itself.
   Address? nearestAddress(double lat, double lon, {double maxMeters = 200}) {
     var best = -1;
     var bestDistance = maxMeters;
@@ -272,7 +274,7 @@ class AddressDatabase {
     return best < 0 ? null : addressAt(best);
   }
 
-  /// Дома вокруг точки, ближние первыми.
+  /// Houses around a point, nearest first.
   List<Address> addressesNear(
     double lat,
     double lon, {
@@ -289,24 +291,25 @@ class AddressDatabase {
     return [for (final (_, index) in found.take(limit)) addressAt(index)];
   }
 
-  /// Считает ключи поиска заранее.
+  /// Builds the search keys ahead of time.
   ///
-  /// Первый [search] иначе платит за них сам — тридцать с лишним
-  /// миллисекунд, то есть два кадра прямо под первым нажатием. Вызов
-  /// сразу после загрузки убирает эту задержку туда, где её никто не
-  /// видит. Повторный вызов бесплатен.
+  /// Otherwise the first [search] pays for them itself — thirty-odd
+  /// milliseconds, two frames right under the first keystroke. Calling
+  /// this straight after loading moves the delay somewhere nobody sees it.
+  /// Calling it again is free.
   void warmUp() => _buildKeys();
 
-  /// Ищет по населённым пунктам, улицам и домам.
+  /// Searches settlements, streets and houses.
   ///
-  /// Каждое слово запроса должно быть началом какого-нибудь слова в
-  /// записи, порядок не важен: «par 2/4 1» находит «Parahat 2/4, 1», а
-  /// «gorogly 8 asgabat» — дом 8 по Görogly köçesi в Ашхабаде. Совпадение
-  /// с середины слова не принимается: «rahat» не найдёт «Parahat».
+  /// Every word of the query must start some word in the entry, and their
+  /// order does not matter: `par 2/4 1` finds `Parahat 2/4, 1`, and
+  /// `gorogly 8 asgabat` finds house 8 on Görogly köçesi in Ashgabat.
+  /// Matching from mid-word is not accepted: `rahat` will not find
+  /// `Parahat`.
   ///
-  /// Порядок выдачи: точное начало записи, затем совпадение в названии
-  /// против совпадения в городе, затем вес записи (город → село → улица →
-  /// дом), затем короткое название вперёд длинного.
+  /// Ranking: an exact prefix of the entry, then a match in the name
+  /// versus a match in the settlement, then the weight of the entry
+  /// (city → village → street → house), then shorter name before longer.
   List<SearchHit> search(String query, {int limit = 30}) {
     final needle = normalize(query);
     if (needle.isEmpty) return const [];
@@ -340,8 +343,8 @@ class AddressDatabase {
       }
     }
 
-    // Вес: город (0) впереди села (2), село впереди улицы (10), улица
-    // впереди двухсот домов на ней (20).
+    // Weight: a city (0) before a village (2), a village before a street
+    // (10), a street before the two hundred houses on it (20).
     scan(_placeKeys!, null, (i) => _placeType[i], _kindPlace);
     scan(_streetKeys!, _streetNameKeyLength, (_) => 10, _kindStreet);
     scan(_addressKeys!, _addressNameKeyLength, (_) => 20, _kindAddress);
@@ -368,11 +371,11 @@ class AddressDatabase {
   static const int _kindStreet = 1;
   static const int _kindAddress = 2;
 
-  /// Свёртывает названия в ключи поиска.
+  /// Folds the names into search keys.
   ///
-  /// Ключ улицы несёт и её город, чтобы «gorogly asgabat» отделяло
-  /// ашхабадскую Görogly köçesi от марыйской, а ключ дома — ключ его
-  /// улицы целиком, поэтому город достаётся дому даром.
+  /// A street's key carries its settlement too, so that `gorogly asgabat`
+  /// tells the Ashgabat Görogly köçesi from the one in Mary. A house's key
+  /// carries its street's key whole, so it gets the settlement for free.
   void _buildKeys() {
     if (_placeKeys != null) return;
 
@@ -395,8 +398,9 @@ class AddressDatabase {
     for (var i = 0; i < addressCount; i++) {
       final street = _addressStreet[i];
       final number = normalize(numberAt(i));
-      // Номер идёт сразу за названием улицы и до города: он такая же
-      // часть «названия» дома, как и улица, а вот город — уточнение.
+      // The number goes right after the street name and before the
+      // settlement: it is as much part of a house's "name" as the street
+      // is, while the settlement only narrows it down.
       final name = '${_nameOf(streets[street], streetNameLength[street])} '
           '$number';
       addressNameLength[i] = math.min(name.length, 0xFFFF);
@@ -417,7 +421,7 @@ class AddressDatabase {
 
 const double _earthRadiusMeters = 6371008.8;
 
-/// Расстояние между двумя точками по большому кругу.
+/// Great-circle distance between two points.
 double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
   final phi1 = lat1 * math.pi / 180;
   final phi2 = lat2 * math.pi / 180;

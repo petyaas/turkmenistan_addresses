@@ -1,25 +1,24 @@
-/// Свёртка диакритики. Обязана совпадать с FOLD в
-/// `tool/address_db_format.py`, иначе набранный текст не сойдётся с
-/// названиями из базы.
+/// Diacritic folding. Must match FOLD in `tool/address_db_format.py`, or
+/// typed text will never meet the names stored in the database.
 ///
-/// Туркменские названия пишутся через ä, ç, ň, ö, ş, ü, ý, а набирать их
-/// на клавиатуре никто не станет — «gorogly» обязан находить
-/// «Görogly köçesi».
+/// Turkmen names use ä, ç, ň, ö, ş, ü, ý and nobody is going to type them
+/// on a keyboard — `gorogly` has to find `Görogly köçesi`.
 const Map<String, String> _fold = {
   'ä': 'a', 'ç': 'c', 'ž': 'z', 'ň': 'n', 'ö': 'o',
   'ş': 's', 'ü': 'u', 'ý': 'y', 'é': 'e', 'ı': 'i',
   'İ': 'i', 'ğ': 'g', 'ё': 'е',
 };
 
-/// Знаки, остающиеся в ключе: дробь и дефис — часть номера дома («2/4»,
-/// «12-а»). Совпадает с KEPT_PUNCTUATION в `tool/address_db_format.py`.
+/// Punctuation that survives folding: the slash and the hyphen are part of
+/// house numbers ("2/4", "12-а"). Matches KEPT_PUNCTUATION in
+/// `tool/address_db_format.py`.
 const String keptPunctuation = '/-';
 
-/// Приводит текст к виду, в котором идёт сравнение.
+/// Reduces text to the form comparisons run on.
 ///
-/// Строчные буквы, свёрнутая диакритика, знаки препинания вместо пробелов:
-/// требовать от человека запятую в «Parahat 2/4, 1» нельзя, набирают на
-/// ходу и по памяти.
+/// Lower case, folded diacritics, punctuation turned into spaces:
+/// demanding the comma in "Parahat 2/4, 1" is no good when people type
+/// from memory, on the move.
 String normalize(String text) {
   final buffer = StringBuffer();
   for (final rune in text.toLowerCase().runes) {
@@ -33,21 +32,21 @@ String normalize(String text) {
 bool _isKept(String character) {
   if (keptPunctuation.contains(character)) return true;
   final code = character.codeUnitAt(0);
-  // Цифры, латиница и всё, что выше ASCII: кириллица и туркменские буквы.
+  // Digits, Latin letters, and everything above ASCII: Cyrillic and the
+  // Turkmen letters.
   return (code >= 0x30 && code <= 0x39) ||
       (code >= 0x61 && code <= 0x7A) ||
       code > 0x7F;
 }
 
-/// Позиция слова [token] в ключе, если оно стоит в начале какого-нибудь
-/// слова. Иначе -1.
+/// Where [token] sits in the key if it starts some word there, else -1.
 ///
-/// Совпадение с середины слова не принимается намеренно: «rahat» не
-/// должно находить «Parahat», иначе выдача заполняется случайными
-/// попаданиями.
+/// Matching from mid-word is rejected on purpose: "rahat" must not find
+/// "Parahat", or the results fill up with accidental hits.
 ///
-/// Ищем через indexOf, а не разбивая ключ на слова: разбиение тринадцати
-/// тысяч ключей на каждое нажатие клавиши стоило бы дороже самого поиска.
+/// This uses indexOf rather than splitting the key into words: splitting
+/// thirteen thousand keys on every keystroke would cost more than the
+/// search itself.
 int wordPrefixAt(String key, String token) {
   var at = key.indexOf(token);
   while (at >= 0) {
@@ -57,8 +56,8 @@ int wordPrefixAt(String key, String token) {
   return -1;
 }
 
-/// Разбивает запрос на слова, длинные вперёд: они отсекают большинство
-/// записей с первой же проверки.
+/// Splits a query into words, longest first: those rule out most entries
+/// on the very first check.
 List<String> tokenize(String needle) {
   final tokens = needle.split(' ')..removeWhere((token) => token.isEmpty);
   tokens.sort((a, b) => b.length.compareTo(a.length));

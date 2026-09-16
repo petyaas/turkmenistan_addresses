@@ -1,4 +1,4 @@
-/// Оффлайновый поиск адресов Туркменистана.
+/// Offline address search for Turkmenistan.
 ///
 /// ```dart
 /// final db = await loadTurkmenistanAddresses();
@@ -7,9 +7,9 @@
 /// }
 /// ```
 ///
-/// База собрана из экстракта OpenStreetMap скриптом
-/// `tool/build_address_db.py` и лежит внутри пакета: сеть не нужна ни при
-/// загрузке, ни при запросе.
+/// The database is built from an OpenStreetMap extract by
+/// `tool/build_address_db.py` and ships inside the package: no network is
+/// used at load time or at query time.
 library;
 
 import 'package:flutter/services.dart' show rootBundle;
@@ -20,17 +20,17 @@ export 'src/address_db.dart' show AddressDatabase, distanceMeters;
 export 'src/address_search.dart' show normalize;
 export 'src/models.dart';
 
-/// Путь к встроенной базе. Пригодится тому, кто читает ассет сам —
-/// например, чтобы передать байты в изолят.
+/// Path to the bundled database. Useful when reading the asset yourself —
+/// to hand the bytes to an isolate, for instance.
 const String turkmenistanAddressesAsset =
     'packages/turkmenistan_addresses/assets/turkmenistan.adb';
 
-/// Открывает встроенную базу.
+/// Opens the bundled database.
 ///
-/// Разбор ничего не копирует — секции остаются представлениями над
-/// загруженным буфером, — поэтому вызов дешёвый и отдельный изолят ему не
-/// нужен. Ключи поиска считаются при первом [AddressDatabase.search] —
-/// [AddressDatabase.warmUp] переносит эту работу на момент загрузки.
+/// Parsing copies nothing — the sections stay views over the loaded buffer
+/// — so the call is cheap and needs no isolate of its own. Search keys are
+/// built on the first [AddressDatabase.search]; [AddressDatabase.warmUp]
+/// moves that work to load time.
 Future<AddressDatabase> loadTurkmenistanAddresses() async {
   final data = await rootBundle.load(turkmenistanAddressesAsset);
   return AddressDatabase.parse(
