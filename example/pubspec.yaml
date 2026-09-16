@@ -1,5 +1,5 @@
 name: turkmenistan_addresses_example
-description: Демонстрация пакета turkmenistan_addresses.
+description: Demo app for the turkmenistan_addresses package.
 publish_to: none
 version: 1.0.0+1
 

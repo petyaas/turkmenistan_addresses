@@ -22,9 +22,3 @@ The same goes for `search_key` here and `normalize` in
 `../lib/src/address_search.dart`: let them drift apart and typed text
 stops meeting the stored names, silently and completely. A test in
 `../test/address_db_test.dart` guards exactly that.
-
----
-
-`address_db_format.py` и `../lib/src/address_db.dart` описывают один и тот
-же двоичный layout — меняешь один, меняй и другой, с подъёмом версии
-формата. То же касается `search_key` и `normalize`.

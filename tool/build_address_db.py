@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
-"""Собирает адресную базу Туркменистана из OSM PBF.
+"""Builds the Turkmenistan address database from an OSM PBF extract.
 
     tool/.venv/bin/python tool/build_address_db.py \
-        assets/turkmenistan.pbf assets/turkmenistan.adb
+        turkmenistan.pbf assets/turkmenistan.adb
 
-Внутрь идёт только то, по чему ищут адрес:
-  * населённые пункты — города, сёла, микрорайоны;
-  * улицы — названные дороги, разведённые по городам;
-  * дома — всё с addr:housenumber, у каждого своя улица.
+Only what an address search needs goes in:
+  * settlements - cities, villages, neighbourhoods;
+  * streets - named roads, separated by town;
+  * houses - everything with addr:housenumber, each with its street.
 
-Заведения, реки и памятники сюда не попадают: они есть в .search и
-адресному поиску не нужны.
+Shops, rivers and monuments stay out: they are not addresses.
 
-Три вещи отличают эту сборку от build_search.py, и все три видны в выдаче:
+Three things here show up directly in the results:
 
-  * дома дедуплицируются. Дом сплошь и рядом размечен дважды — контуром
-    здания и адресной точкой внутри него, — и в .search оба лежат рядом
-    двумя одинаковыми строками;
-  * улица хранится один раз, а не переписывается в каждый дом;
-  * у дома помечено, откуда взялась улица: из addr:street или подобрана
-    по ближайшей дороге.
+  * houses are deduplicated. A house is routinely mapped twice - as a
+    building outline and as an address node inside it - and left alone
+    both land in the results as two identical rows;
+  * a street is stored once instead of being copied into every house;
+  * each house records where its street came from: the addr:street tag,
+    or the nearest road.
 
-Формат выходного файла описан в address_db_format.py.
+The output format is described in address_db_format.py.
 """
 
 import argparse
@@ -38,36 +37,37 @@ import address_db_format as fmt
 
 EARTH_RADIUS_M = 6371008.8
 
-# Одна и та же улица есть в разных городах. Названия дальше этого
-# расстояния — разные улицы, сливать их нельзя: водителя увезёт в другой
-# город к дому с тем же номером.
+# The same street name occurs in different towns. Further apart than this
+# they are different streets, and merging them is not allowed: it sends
+# you to another town, to a house with the same number.
 STREET_CLUSTER_M = 6000
 
-# Дальше этого дом уже не «на этой улице» — лучше оставить без неё.
+# Beyond this a house is no longer "on that street" - better to leave it
+# without one.
 STREET_SNAP_M = 150
 
-# Два дома с одним номером ближе этого — один дом, размеченный дважды.
-# Радиус мал намеренно: разные дома с одинаковым номером в соседних
-# кварталах встречаются, и склеивать их нельзя.
+# Two houses with the same number closer than this are one house mapped
+# twice. The radius is deliberately small: different houses with the same
+# number do occur in neighbouring blocks, and merging those is wrong.
 NEARBY_RADIUS_M = 25
 
-# Один населённый пункт ближе этого расстояния к другому с тем же
-# названием — это он же, размеченный дважды: точкой в центре и полигоном
-# границы. Радиус щедрый, потому что центр полигона и табличка в центре
-# города расходятся на километры, а два разных села с одним названием в
-# десяти километрах друг от друга не встречаются.
+# A settlement closer than this to another one of the same name is the
+# same settlement mapped twice: as a node at its centre and as a boundary
+# polygon. The radius is generous because the centroid of the polygon and
+# the node in the town centre sit kilometres apart, while two different
+# villages sharing a name ten kilometres apart do not occur.
 PLACE_DUPLICATE_M = 10000
 
-# Дальше этого улица уже не принадлежит населённому пункту. Сёла в
-# Туркменистане стоят редко, поэтому радиус щедрый.
+# Beyond this a street no longer belongs to a settlement. Villages in
+# Turkmenistan are far apart, hence the generous radius.
 PLACE_SNAP_M = 25000
 
-# Насколько далеко «дотягивается» населённый пункт своего типа. Голое
-# расстояние тут не работает: микрорайоны Ашхабада — Parahat 7/2, Gurtly —
-# лежат ближе к пригородным сёлам (Gämi, Nurly zaman), чем к точке центра
-# города, и по чистой близости весь спальный район уезжает в село.
-# Поэтому расстояние делится на вес: город виден с пятнадцати километров,
-# село — с двух.
+# How far a settlement of each type "reaches". Plain distance does not
+# work here: the Ashgabat neighbourhoods - Parahat 7/2, Gurtly - lie
+# closer to the suburban villages (Gämi, Nurly zaman) than to the node
+# marking the city centre, so by proximity alone the whole residential
+# district moves to a village. Distance is therefore divided by a weight:
+# a city is visible from fifteen kilometres, a village from two.
 PLACE_REACH = {
     fmt.PLACE_CITY: 6.0,
     fmt.PLACE_TOWN: 3.0,
@@ -75,10 +75,10 @@ PLACE_REACH = {
     fmt.PLACE_HAMLET: 0.7,
 }
 
-# Размер ячейки поисковых сеток, в градусах (~550 м).
+# Cell size of the lookup grids, in degrees (~550 m).
 LOOKUP_CELL_DEG = 0.005
 
-# Шаг, с которым дорога раскладывается на точки для поиска ближайшей.
+# Spacing at which a road is sampled into points for nearest-road lookup.
 STREET_SAMPLE_M = 40
 
 MAX_NAME = 90
@@ -104,10 +104,10 @@ def clean(value, limit=MAX_NAME):
 
 
 def is_house_number(text):
-    """Отсекает мусор в addr:housenumber.
+    """Rejects junk in addr:housenumber.
 
-    В данных попадаются «?», «???», «&» и названия организаций
-    («Gül Zemin»). Настоящий номер всегда содержит цифру.
+    The data contains "?", "???", "&" and company names ("Gül Zemin").
+    A real house number always contains a digit.
     """
     if not text or len(text) > MAX_NUMBER:
         return False
@@ -115,7 +115,7 @@ def is_house_number(text):
 
 
 def point_in_polygon(lat, lon, ring):
-    """Лучевой алгоритм: сколько раз луч из точки пересёк контур."""
+    """Ray casting: how many times a ray from the point crosses the ring."""
     inside = False
     count = len(ring)
     j = count - 1
@@ -136,11 +136,11 @@ def in_country(lat, lon):
 
 
 class StreetLocator:
-    """Ближайшая названная улица к произвольной точке.
+    """The nearest named street to an arbitrary point.
 
-    Дороги раскладываются на точки с шагом в несколько десятков метров и
-    складываются в сетку. Полный перебор здесь не годится: улиц тысячи, а
-    спросить нужно для каждого из восьми тысяч домов.
+    Roads are sampled into points every few dozen metres and dropped into
+    a grid. A full scan will not do here: there are thousands of streets
+    and the question is asked for each of eight thousand houses.
     """
 
     def __init__(self):
@@ -236,8 +236,9 @@ class Collector(osmium.SimpleHandler):
             if w.tags.get("addr:housenumber"):
                 self.skipped_no_geometry += 1
             return
-        # Середина контура: для прямоугольного дома это его центр, для
-        # вытянутого — точка внутри, чего для адреса достаточно.
+        # The middle of the ring: for a rectangular house that is its
+        # centre, for an elongated one a point inside it, which is enough
+        # for an address.
         lat = sum(p[0] for p in ring) / len(ring)
         lon = sum(p[1] for p in ring) / len(ring)
         if not in_country(lat, lon):
@@ -255,13 +256,14 @@ class Collector(osmium.SimpleHandler):
                 self.locator.add(name, ring)
 
     def deduplicate(self):
-        """Убирает второй адрес одного и того же дома.
+        """Removes the second address of one and the same house.
 
-        Признак дубля — точка лежит ВНУТРИ контура с тем же номером.
-        Именно геометрия, а не расстояние: у панельного дома длиной под
-        сотню метров точка стоит у подъезда, а центр контура посередине,
-        и по радиусу их не свести, не склеив заодно разные дома с
-        одинаковым номером в соседних кварталах.
+        The mark of a duplicate is an address node INSIDE an outline with
+        the same number. Geometry, not distance: on a panel block a
+        hundred metres long the node stands at an entrance while the
+        outline's centre is in the middle, and no radius brings those
+        together without also merging different houses that share a
+        number in neighbouring blocks.
         """
         cells = {}
         for index, (number, _, _, _, ring) in enumerate(self.buildings):
@@ -289,8 +291,8 @@ class Collector(osmium.SimpleHandler):
             neighbours.append((lat, lon))
             result.append((number, lat, lon, street))
 
-        # Контуры первыми: их центр заведомо внутри дома, поэтому при
-        # схлопывании выживать должен именно он, а не адресная точка.
+        # Outlines first: their centre is certainly inside the house, so
+        # it is the one that should survive a merge, not the node.
         for number, lat, lon, street, _ in self.buildings:
             accept(number, lat, lon, street)
 
@@ -305,7 +307,7 @@ class Collector(osmium.SimpleHandler):
         return result, inside_building, near_duplicate
 
     def streets(self):
-        """Улицы, разведённые по городам: (name, lat, lon)."""
+        """Streets separated by town: (name, lat, lon)."""
         result = []
         for name, points in self.street_points.items():
             clusters = []
@@ -326,15 +328,16 @@ class Collector(osmium.SimpleHandler):
 
 
 def deduplicate_places(places):
-    """Схлопывает населённый пункт, размеченный точкой и полигоном.
+    """Merges a settlement mapped as both a node and a polygon.
 
-    В экстракте `place=city` висит и на узле в центре города, и на
-    контуре его границы — в сыром виде Теджен и Туркменгала приезжают в
-    базу по два раза. Сравнение по свёрнутому названию, а не по строке:
-    «Altyn asyr» и «Altyn Asyr» — один посёлок.
+    In the extract `place=city` sits on the node at the town centre and
+    on its boundary outline alike - untouched, Tejen and Türkmengala
+    arrive in the database twice. Comparison runs on the folded name, not
+    the raw string: "Altyn asyr" and "Altyn Asyr" are one settlement.
 
-    Выживает запись с самым весомым типом: если один и тот же объект
-    размечен и городом, и микрорайоном, адрес принадлежит городу.
+    The record with the weightiest type survives: if the same object is
+    mapped as both a city and a neighbourhood, an address belongs to the
+    city.
     """
     kept = []
     groups = {}
@@ -356,10 +359,10 @@ def deduplicate_places(places):
 
 
 def attach_places(streets, places):
-    """Каждой улице — населённый пункт, в котором она лежит.
+    """Gives every street the settlement it lies in.
 
-    Микрорайон и местность для этого не годятся: адрес привязывают к
-    городу или селу, «Parahat 4» само по себе не адрес.
+    A neighbourhood or a locality will not do: an address is bound to a
+    city or a village, and "Parahat 4" on its own is not an address.
     """
     anchors = [
         (index, place[2], place[3], PLACE_REACH[place[0]])
@@ -367,9 +370,9 @@ def attach_places(streets, places):
         if place[0] in fmt.PLACE_PARENTS
     ]
 
-    # Полный перебор: населённых пунктов пара тысяч, улиц три с половиной —
-    # семь миллионов проверок, считаные секунды. Сетка тут не помогла бы,
-    # радиус привязки много больше её ячейки.
+    # Full scan: a couple of thousand settlements against three and a half
+    # thousand streets is seven million checks, a few seconds. A grid
+    # would not help - the attachment radius is far larger than its cell.
     result = []
     for name, lat, lon in streets:
         best = fmt.NO_REF
@@ -387,18 +390,18 @@ def attach_places(streets, places):
 
 
 def resolve_streets(addresses, streets, locator):
-    """Каждому дому — индекс его улицы.
+    """Gives every house the index of its street.
 
-    Порядок: addr:street, если он есть; иначе ближайшая названная дорога
-    в пределах STREET_SNAP_M. Улица с тегом, но без дороги поблизости,
-    всё равно настоящая — под неё заводится своя запись, иначе дом
-    пропал бы вместе с адресом, который в OSM записан явно.
+    In order: addr:street if present, otherwise the nearest named road
+    within STREET_SNAP_M. A tagged street with no road nearby is still a
+    real street - it gets a record of its own, or the house would be lost
+    along with an address OSM states explicitly.
     """
     by_name = {}
     for index, (name, lat, lon) in enumerate(streets):
         by_name.setdefault(name, []).append((index, lat, lon))
 
-    extra = []  # новые улицы: (name, lat, lon)
+    extra = []  # new streets: (name, lat, lon)
     extra_by_name = {}
     resolved = []
     dropped = 0
@@ -418,9 +421,9 @@ def resolve_streets(addresses, streets, locator):
         if tagged:
             index = nearest_cluster(tagged, lat, lon, STREET_CLUSTER_M)
             if index is None:
-                # Та же кластеризация, что у дорог, но по домам: иначе
-                # улица без дороги разложится на сотню записей — по одной
-                # на дом.
+                # The same clustering roads get, but over houses:
+                # otherwise a street with no road becomes a hundred
+                # records, one per house.
                 index = None
                 for candidate, cluster_lat, cluster_lon in extra_by_name.get(tagged, ()):
                     if haversine_m(lat, lon, cluster_lat, cluster_lon) <= STREET_CLUSTER_M:
@@ -436,8 +439,8 @@ def resolve_streets(addresses, streets, locator):
 
         name = locator.nearest(lat, lon)
         if name is None:
-            # Голый номер без улицы искать невозможно: «дом 12» есть в
-            # каждом квартале.
+            # A bare number is unsearchable: "house 12" exists in every
+            # block.
             dropped += 1
             continue
         index = nearest_cluster(name, lat, lon, STREET_CLUSTER_M)
@@ -453,12 +456,12 @@ _NUMBER_PARTS = re.compile(r"(\d+)")
 
 
 def natural_key(number):
-    """Ключ сортировки номеров домов по-человечески.
+    """Sort key that orders house numbers the way people read them.
 
-    По строке «48» встаёт между «4» и «5», а дом 10 — сразу за домом 1.
-    Список домов на улице читают глазами, и такой порядок в нём выглядит
-    поломкой. Номер разбирается на цифровые и нецифровые куски: «2/4»,
-    «12-а» и «111(A)» тоже раскладываются правильно.
+    By string, "48" falls between "4" and "5", and house 10 right after
+    house 1. The list of houses on a street is read by eye, and that
+    order looks like a bug in it. The number is split into digit and
+    non-digit runs, so "2/4", "12-a" and "111(A)" come out right too.
     """
     return tuple(
         (1, int(part)) if part.isdigit() else (0, part)
@@ -475,7 +478,7 @@ def to_le(values):
 
 
 def write_database(path, places, streets, street_places, addresses):
-    """Пишет секции. Строки — только названия, каждое по одному разу."""
+    """Writes the sections. Strings are names only, each one stored once."""
     strings = []
     string_index = {}
 
@@ -582,70 +585,71 @@ def write_database(path, places, streets, street_places, addresses):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("pbf", help="входной OSM PBF")
-    parser.add_argument("out", help="выходной .adb")
+    parser.add_argument("pbf", help="input OSM PBF")
+    parser.add_argument("out", help="output .adb")
     args = parser.parse_args()
 
     started = time.time()
-    print("читаем данные…", flush=True)
+    print("reading the extract...", flush=True)
     collector = Collector()
     collector.apply_file(args.pbf, locations=True, idx="flex_mem")
-    print(f"  населённых пунктов: {len(collector.places)},"
-          f" названных дорог: {len(collector.street_points)}", flush=True)
-    print(f"  контуров с адресом: {len(collector.buildings)},"
-          f" адресных точек: {len(collector.nodes)}", flush=True)
+    print(f"  settlements: {len(collector.places)},"
+          f" named roads: {len(collector.street_points)}", flush=True)
+    print(f"  outlines with an address: {len(collector.buildings)},"
+          f" address nodes: {len(collector.nodes)}", flush=True)
     if collector.skipped_junk:
-        print(f"  отброшено мусорных номеров: {collector.skipped_junk}", flush=True)
+        print(f"  junk numbers dropped: {collector.skipped_junk}", flush=True)
     if collector.skipped_outside:
-        print(f"  отброшено за границей страны: {collector.skipped_outside}", flush=True)
+        print(f"  dropped outside the country: {collector.skipped_outside}", flush=True)
     if collector.skipped_no_geometry:
-        print(f"  пропущено без координат: {collector.skipped_no_geometry}", flush=True)
+        print(f"  skipped without coordinates: {collector.skipped_no_geometry}", flush=True)
 
     collector.places, duplicate_places = deduplicate_places(collector.places)
     if duplicate_places:
-        print(f"  схлопнуто населённых пунктов (точка и полигон):"
+        print(f"  settlements merged (node and polygon):"
               f" {duplicate_places}", flush=True)
 
     addresses, inside, nearby = collector.deduplicate()
-    print(f"  точек внутри своего же контура: {inside}", flush=True)
-    print(f"  схлопнуто близнецов (в пределах {NEARBY_RADIUS_M} м): {nearby}", flush=True)
+    print(f"  nodes inside their own outline: {inside}", flush=True)
+    print(f"  twins merged (within {NEARBY_RADIUS_M} m): {nearby}", flush=True)
 
     streets = collector.streets()
-    print(f"  улиц после разведения по городам: {len(streets)}", flush=True)
+    print(f"  streets after separating by town: {len(streets)}", flush=True)
 
     resolved, extra, dropped, invented = resolve_streets(
         addresses, streets, collector.locator)
     streets = streets + extra
     if invented:
-        print(f"  улиц заведено по addr:street без дороги рядом: {invented}",
-              flush=True)
+        print(f"  streets created from addr:street with no road nearby:"
+              f" {invented}", flush=True)
     if dropped:
-        print(f"  домов отброшено (нет улицы ближе {STREET_SNAP_M} м): {dropped}",
-              flush=True)
+        print(f"  houses dropped (no street within {STREET_SNAP_M} m):"
+              f" {dropped}", flush=True)
 
     street_places = attach_places(streets, collector.places)
     without_place = sum(1 for index in street_places if index == fmt.NO_REF)
     if without_place:
-        print(f"  улиц без населённого пункта: {without_place}", flush=True)
+        print(f"  streets with no settlement: {without_place}", flush=True)
 
-    # Дома группой по улице: выдача «все дома на улице» становится
-    # непрерывным куском, который берётся двоичным поиском, да и жмётся
-    # лучше. Внутри улицы — по номеру, по-человечески.
+    # Houses grouped by street: "every house on this street" becomes one
+    # contiguous slice, taken by binary search, and it compresses better
+    # too. Within a street, by number, the way people read them.
     resolved.sort(key=lambda row: (row[3], natural_key(row[0])))
 
     exact = sum(1 for row in resolved if row[4])
-    print(f"  домов на выходе: {len(resolved)}"
-          f" (улица из addr:street у {exact},"
-          f" выведена у {len(resolved) - exact})", flush=True)
+    print(f"  houses written: {len(resolved)}"
+          f" (street from addr:street for {exact},"
+          f" inferred for {len(resolved) - exact})", flush=True)
     if not resolved:
-        sys.exit("в файле не нашлось ни одного адреса")
+        sys.exit("the extract contained no addresses at all")
 
-    print(f"пишем {args.out}…", flush=True)
+    print(f"writing {args.out}...", flush=True)
     size, string_count, string_bytes = write_database(
         args.out, collector.places, streets, street_places, resolved)
-    print(f"  строк в таблице названий: {string_count} ({string_bytes / 1024:.0f} КБ)",
+    print(f"  strings in the name table: {string_count}"
+          f" ({string_bytes / 1024:.0f} KB)", flush=True)
+    print(f"done: {size / 1024:.0f} KB in {time.time() - started:.0f} s",
           flush=True)
-    print(f"готово: {size / 1024:.0f} КБ за {time.time() - started:.0f} с", flush=True)
 
 
 if __name__ == "__main__":

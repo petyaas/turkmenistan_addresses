@@ -1,8 +1,8 @@
 ## 1.0.0
 
-Первая версия.
+First release.
 
-* Поиск по населённым пунктам, улицам и домам Туркменистана.
-* Встроенная база на 292 КБ: 2 039 населённых пунктов, 3 555 улиц,
-  6 993 дома.
+* Search over the settlements, streets and houses of Turkmenistan.
+* A bundled 292 KB database: 2,039 settlements, 3,555 streets,
+  6,993 houses.
 * `nearestAddress`, `addressesNear`, `housesOn`.

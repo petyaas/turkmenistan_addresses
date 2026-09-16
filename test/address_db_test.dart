@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turkmenistan_addresses/turkmenistan_addresses.dart';
 
-/// Тесты читают ассет с диска напрямую: rootBundle требует поднятого
-/// биндинга, а проверять тут нужно данные и разбор, а не Flutter.
+/// The tests read the asset straight from disk: rootBundle needs a live
+/// binding, and what matters here is the data and the parsing, not Flutter.
 late final AddressDatabase db;
 
 void main() {
@@ -14,21 +14,21 @@ void main() {
     db = AddressDatabase.parse(bytes);
   });
 
-  group('формат', () {
-    test('база разбирается и не пуста', () {
+  group('format', () {
+    test('the database parses and is not empty', () {
       expect(db.placeCount, greaterThan(1000));
       expect(db.streetCount, greaterThan(3000));
       expect(db.addressCount, greaterThan(6000));
     });
 
-    test('чужой файл отвергается, а не читается как мусор', () {
+    test('a foreign file is refused, not read as garbage', () {
       expect(
         () => AddressDatabase.parse(Uint8List(200)),
         throwsA(isA<FormatException>()),
       );
     });
 
-    test('обрезанный файл отвергается', () {
+    test('a truncated file is refused', () {
       final bytes = File('assets/turkmenistan.adb').readAsBytesSync();
       expect(
         () => AddressDatabase.parse(Uint8List.sublistView(bytes, 0, 100)),
@@ -36,7 +36,7 @@ void main() {
       );
     });
 
-    test('версия формата проверяется', () {
+    test('the format version is checked', () {
       final bytes =
           Uint8List.fromList(File('assets/turkmenistan.adb').readAsBytesSync());
       ByteData.view(bytes.buffer).setUint32(4, 99, Endian.little);
@@ -45,15 +45,16 @@ void main() {
         throwsA(
           isA<FormatException>().having(
             (error) => error.message,
-            'сообщение',
+            'message',
             allOf(contains('99'), contains('build_address_db.py')),
           ),
         ),
       );
     });
 
-    test('невыровненный срез читается', () {
-      // rootBundle отдаёт вид на общий буфер с произвольным смещением.
+    test('an unaligned slice is readable', () {
+      // rootBundle hands back a view on a shared buffer at an arbitrary
+      // offset.
       final bytes = File('assets/turkmenistan.adb').readAsBytesSync();
       final shifted = Uint8List(bytes.length + 1)..setRange(1, bytes.length + 1, bytes);
       final copy = AddressDatabase.parse(Uint8List.sublistView(shifted, 1));
@@ -61,8 +62,8 @@ void main() {
     });
   });
 
-  group('целостность данных', () {
-    test('каждый дом ссылается на существующую улицу', () {
+  group('data integrity', () {
+    test('every house points at a street that exists', () {
       for (var i = 0; i < db.addressCount; i++) {
         final address = db.addressAt(i);
         expect(address.street.id, inInclusiveRange(0, db.streetCount - 1));
@@ -71,19 +72,19 @@ void main() {
       }
     });
 
-    test('в номере дома всегда есть цифра', () {
-      // «?», «&» и «Gül Zemin» отсеиваются при сборке: подписать ими дом
-      // нельзя, а искать по ним нечего.
+    test('a house number always contains a digit', () {
+      // "?", "&" and "Gül Zemin" are filtered out at build time: they
+      // cannot label a house and there is nothing to search for in them.
       final digit = RegExp(r'\d');
       for (var i = 0; i < db.addressCount; i++) {
         expect(digit.hasMatch(db.numberAt(i)), isTrue,
-            reason: 'номер «${db.numberAt(i)}» без цифры');
+            reason: 'the number "${db.numberAt(i)}" has no digit');
       }
     });
 
-    test('всё лежит внутри страны', () {
-      // Экстракт захватывает объекты за границей — в базе по Туркменистану
-      // Махачкале и Астрахани делать нечего.
+    test('everything lies inside the country', () {
+      // The extract reaches across the border, and Makhachkala has no
+      // business in a database of Turkmenistan.
       for (var i = 0; i < db.addressCount; i++) {
         final address = db.addressAt(i);
         expect(address.lat, inInclusiveRange(35.0, 43.0));
@@ -91,20 +92,20 @@ void main() {
       }
     });
 
-    test('у подавляющего большинства улиц есть населённый пункт', () {
+    test('the vast majority of streets have a settlement', () {
       var without = 0;
       for (var i = 0; i < db.streetCount; i++) {
         if (db.streetAt(i).place == null) without++;
       }
-      // Остаются трассы и пустынные дороги: ближайшего города нет на
-      // десятки километров.
+      // What is left are highways and desert roads: the nearest town is
+      // tens of kilometres away.
       expect(without, lessThan(db.streetCount ~/ 100));
     });
 
-    test('дублей дома не осталось', () {
-      // Дом сплошь и рядом размечен дважды — контуром здания и адресной
-      // точкой внутри него. Один и тот же номер на одной улице в двадцати
-      // пяти метрах — это он же.
+    test('no duplicate houses are left', () {
+      // A house is routinely mapped twice - as a building outline and as
+      // an address node inside it. The same number on the same street
+      // within twenty-five metres is the same house.
       final seen = <int, List<Address>>{};
       for (var i = 0; i < db.addressCount; i++) {
         final address = db.addressAt(i);
@@ -113,16 +114,16 @@ void main() {
           final apart = distanceMeters(
               address.lat, address.lon, other.lat, other.lon);
           expect(apart, greaterThan(25),
-              reason: 'два «${address.number}» на ${address.street.name} '
-                  'в ${apart.round()} м');
+              reason: 'two "${address.number}" on ${address.street.name} '
+                  '${apart.round()} m apart');
         }
         (seen[address.street.id] ??= []).add(address);
       }
     });
 
-    test('одинаковые номера разных домов сохранены', () {
-      // Обратная опасность: тайлы схлопывали все дома с одним номером в
-      // пределах тайла, и в Parahat 4 из 306 адресов осталось 126.
+    test('identical numbers on different houses are kept', () {
+      // The opposite hazard: collapsing every house that shares a number
+      // is what loses half the addresses in a district.
       final numbers = <String>{};
       var repeated = 0;
       for (var i = 0; i < db.addressCount; i++) {
@@ -132,52 +133,55 @@ void main() {
     });
   });
 
-  group('поиск', () {
-    test('слова ищутся с начала, в любом порядке', () {
-      // Требовать запятую и точное написание нельзя: набирают по памяти.
+  group('search', () {
+    test('words match from their start, in any order', () {
+      // Demanding the comma and the exact spelling is no good: people type
+      // from memory.
       final hits = db.search('par 2/4 1');
       expect(hits.first, isA<AddressHit>());
       expect(hits.first.title, 'Parahat 2/4, 1');
       expect(hits.first.place?.name, 'Aşgabat');
     });
 
-    test('совпадение с середины слова не принимается', () {
-      // Иначе выдача заполняется случайными попаданиями.
+    test('a match from mid-word is not accepted', () {
+      // Otherwise the results fill up with accidental hits.
       final hits = db.search('rahat');
       expect(hits.where((hit) => hit.title.contains('Parahat')), isEmpty);
     });
 
-    test('диакритика свёрнута', () {
-      // ä, ç, ň, ö, ş, ü, ý на клавиатуре никто набирать не станет.
+    test('diacritics are folded', () {
+      // Nobody is going to type ä, ç, ň, ö, ş, ü, ý on a keyboard.
       final hits = db.search('gorogly');
       expect(hits.any((hit) => hit.title.startsWith('Görogly')), isTrue);
     });
 
-    test('город отделяет одноимённые улицы', () {
+    test('the settlement separates streets of the same name', () {
       final all = db.search('gorogly kocesi', limit: 100);
       final cities = {
         for (final hit in all)
           if (hit is StreetHit) hit.place?.name,
       };
-      expect(cities.length, greaterThan(3), reason: 'улица есть в разных сёлах');
+      expect(cities.length, greaterThan(3),
+          reason: 'the street exists in several settlements');
 
       final narrowed = db.search('gorogly kocesi gyzylarbat');
       expect(narrowed.first, isA<StreetHit>());
       expect(narrowed.first.place?.name, 'Gyzylarbat');
     });
 
-    test('населённый пункт впереди улиц и домов', () {
-      // Поездка в другой город — самый частый длинный маршрут, и «Mary»
-      // не должно тонуть в домах на улице Мары.
+    test('a settlement comes before streets and houses', () {
+      // Driving to another town is the commonest long trip, and "Mary"
+      // must not drown in houses on a street named Mary.
       final hits = db.search('mary');
       expect(hits.first, isA<PlaceHit>());
       expect(hits.first.title, 'Mary');
     });
 
-    test('улица впереди домов на ней, а место впереди улицы', () {
-      // «Parahat 4» в OSM — сразу три вещи: микрорайон, улица и полсотни
-      // домов на ней. Выдача обязана идти именно в этом порядке: улица
-      // полезнее любого отдельного дома, а микрорайон — улицы.
+    test('a street comes before its houses, a place before the street', () {
+      // "Parahat 4" is three things in OSM at once: a neighbourhood, a
+      // street and fifty houses on it. The results have to come in that
+      // order: a street is more useful than any single house, and a
+      // neighbourhood more than the street.
       final hits = db.search('parahat 4', limit: 100);
       final place = hits.indexWhere((hit) => hit is PlaceHit);
       final street = hits.indexWhere((hit) => hit is StreetHit);
@@ -188,33 +192,34 @@ void main() {
       expect(hits[street].title, 'Parahat 4');
     });
 
-    test('пустой запрос не ищет', () {
+    test('an empty query searches nothing', () {
       expect(db.search(''), isEmpty);
       expect(db.search('   ,.  '), isEmpty);
     });
 
-    test('лимит соблюдается', () {
+    test('the limit is respected', () {
       expect(db.search('a', limit: 5).length, 5);
     });
 
-    test('ничего не находится на заведомой чепухе', () {
+    test('obvious nonsense finds nothing', () {
       expect(db.search('zzzqqq'), isEmpty);
     });
 
-    test('запрос укладывается в кадр', () {
-      db.search('прогрев'); // ключи считаются при первом запросе
+    test('a query fits inside one frame', () {
+      db.search('warm up'); // the keys are built on the first query
       final started = Stopwatch()..start();
       for (var i = 0; i < 20; i++) {
         db.search('par 2/4 1');
       }
       final perQuery = started.elapsedMicroseconds / 20 / 1000;
       expect(perQuery, lessThan(16),
-          reason: 'запрос ${perQuery.toStringAsFixed(1)} мс — дороже кадра');
+          reason: 'a query takes ${perQuery.toStringAsFixed(1)} ms — '
+              'more than a frame');
     });
   });
 
-  group('геометрия', () {
-    test('дома на улице лежат одним куском', () {
+  group('geometry', () {
+    test('the houses on a street lie in one slice', () {
       final street = db.search('parahat 2/4').whereType<StreetHit>().first.value;
       final houses = db.housesOn(street.id);
       expect(houses, isNotEmpty);
@@ -224,13 +229,14 @@ void main() {
       for (var i = 0; i < db.addressCount; i++) {
         if (db.addressAt(i).street.id == street.id) total++;
       }
-      expect(houses.length, total, reason: 'двоичный поиск потерял дома');
+      expect(houses.length, total,
+          reason: 'the binary search lost some houses');
     });
 
-    test('дома на улице идут по номеру, а не по строке', () {
-      // По строке «48» встаёт между «4» и «5», а «10» сразу за «1» —
-      // список домов читают глазами, и такой порядок в нём выглядит
-      // поломкой.
+    test('houses on a street are ordered by number, not by string', () {
+      // By string "48" falls between "4" and "5", and "10" right after
+      // "1" — the list is read by eye, and that order looks like a bug
+      // in it.
       final street = db.search('parahat 2/4').whereType<StreetHit>().first.value;
       final numbers = db.housesOn(street.id).map((house) => house.number);
       final plain = numbers.where((number) => int.tryParse(number) != null);
@@ -239,11 +245,11 @@ void main() {
       expect(asNumbers.length, greaterThan(5));
     });
 
-    test('у несуществующей улицы домов нет', () {
+    test('a street that does not exist has no houses', () {
       expect(db.housesOn(db.streetCount + 10), isEmpty);
     });
 
-    test('ближайший дом к самому дому — он сам', () {
+    test('the nearest house to a house is itself', () {
       final address = db.addressAt(db.addressCount ~/ 2);
       final nearest = db.nearestAddress(address.lat, address.lon);
       expect(nearest, isNotNull);
@@ -251,11 +257,11 @@ void main() {
       expect(nearest.street.id, address.street.id);
     });
 
-    test('в пустыне домов нет', () {
+    test('there are no houses in the desert', () {
       expect(db.nearestAddress(40.5, 58.0), isNull);
     });
 
-    test('дома вокруг точки идут ближними вперёд', () {
+    test('houses around a point come nearest first', () {
       final address = db.addressAt(db.addressCount ~/ 2);
       final near = db.addressesNear(address.lat, address.lon,
           radiusMeters: 500, limit: 10);
@@ -271,23 +277,25 @@ void main() {
     });
   });
 
-  group('происхождение улицы', () {
-    test('помечено, откуда взялась улица', () {
+  group('where the street came from', () {
+    test('the origin of the street is recorded', () {
       var exact = 0;
       for (var i = 0; i < db.addressCount; i++) {
         if (db.addressAt(i).streetIsExact) exact++;
       }
-      // addr:street есть не у всех домов; остальным улица подобрана по
-      // ближайшей дороге, и вызывающий обязан уметь их различить.
+      // Not every house carries addr:street; the rest had their street
+      // inferred from the nearest road, and the caller must be able to
+      // tell the two apart.
       expect(exact, greaterThan(db.addressCount ~/ 2));
       expect(exact, lessThan(db.addressCount));
     });
   });
 
-  group('нормализация', () {
-    test('совпадает с эталоном из address_db_format.py', () {
-      // Эти пары посчитаны питоновской search_key: разойдутся — набранный
-      // текст перестанет встречаться с названиями, молча и целиком.
+  group('normalization', () {
+    test('matches the reference from address_db_format.py', () {
+      // These pairs were produced by the Python search_key: let them drift
+      // apart and typed text stops meeting the names, silently and
+      // completely.
       expect(normalize('Görogly (2009) köçesi'), 'gorogly 2009 kocesi');
       expect(normalize('Parahat 2/4, 1'), 'parahat 2/4 1');
       expect(normalize('12-а'), '12-а');
@@ -296,7 +304,7 @@ void main() {
       expect(normalize('Ёлка'), 'елка');
     });
 
-    test('дробь и дефис остаются — это часть номера дома', () {
+    test('the slash and the hyphen survive — they are part of a number', () {
       expect(normalize('2/4'), '2/4');
       expect(normalize('12-a'), '12-a');
     });

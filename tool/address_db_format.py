@@ -1,29 +1,28 @@
-"""Формат адресной базы (.adb) — единственный источник правды.
+"""The address database format (.adb) - the single source of truth.
 
-Тот же layout повторён в Dart-ридере пакета. Меняешь здесь — меняй и там,
-и подними FORMAT_VERSION; загрузчик обязан отказаться при несовпадении,
-а не читать мусор.
+The same layout is mirrored in the package's Dart reader. Change it here
+and you must change it there, raising FORMAT_VERSION; the loader is
+required to refuse a mismatch rather than read garbage.
 
-Зачем отдельный файл, если есть .search: тот индекс несёт ещё и заведения
-(13 853 записи из 27 088) и тянет 2.4 МБ. Адресному пакету заведения не
-нужны, а три вещи в .search сделаны под навигатор, а не под библиотеку:
+The layout is normalised, because the obvious flat one wastes most of the
+file:
 
-  * ключ поиска лежит в файле рядом с названием и занимает 40% всех строк.
-    Свернуть 6.5 тысячи уникальных названий при загрузке — это единицы
-    миллисекунд ОДИН раз, а не на каждое нажатие;
-  * подпись записи — это русское слово («адрес», «улица», «село»),
-    то есть язык вкомпилирован в данные. Здесь вместо неё лежит код типа,
-    а подписывает пусть тот, кто показывает;
-  * у каждого дома продублирована полная строка «Görogly köçesi, 8».
-    Названий улиц на восемь тысяч домов всего 924.
+  * a search key stored next to the name takes 40% of all strings. Folding
+    6,500 unique names at load time costs a few milliseconds ONCE, not on
+    every keystroke, so keys are not stored at all;
+  * a human-readable label for the kind of an entry bakes a language into
+    the data. A type code is stored instead, and whoever displays the
+    entry gets to word it;
+  * the full string "Görogly köçesi, 8" repeated in every house is waste:
+    eight thousand houses share 924 street names.
 
-Отсюда нормализация: дом — это координата, ссылка на улицу и номер;
-улица — название и ссылка на населённый пункт.
+Hence: a house is a coordinate, a reference to a street and a number; a
+street is a name and a reference to a settlement.
 
-Файл: [header 32 байта][таблица секций 16*8 байт][секции, выровненные на 4]
+File: [32-byte header][section table, 16*8 bytes][sections, 4-byte aligned]
 
-Пространственного индекса нет намеренно — как и в .search: записей
-тринадцать тысяч, полный перебор дешевле, чем сетка в памяти.
+There is deliberately no spatial index: with thirteen thousand entries a
+full scan is cheaper than a grid held in memory.
 """
 
 MAGIC = b"TMAB"
@@ -33,41 +32,41 @@ HEADER_BYTES = 32
 SECTION_COUNT = 16
 SECTION_TABLE_BYTES = SECTION_COUNT * 8
 
-# Населённые пункты.
-S_PLACE_LAT = 0  # int32[placeCount]      широта * 1e7
+# Settlements.
+S_PLACE_LAT = 0  # int32[placeCount]      latitude * 1e7
 S_PLACE_LON = 1  # int32[placeCount]
-S_PLACE_NAME = 2  # uint32[placeCount]    индекс в таблице строк
-S_PLACE_TYPE = 3  # uint8[placeCount]     PLACE_* ниже
+S_PLACE_NAME = 2  # uint32[placeCount]    index into the string table
+S_PLACE_TYPE = 3  # uint8[placeCount]     PLACE_* below
 
-# Улицы, уже разведённые по городам.
+# Streets, already separated by town.
 S_STREET_LAT = 4  # int32[streetCount]
 S_STREET_LON = 5  # int32[streetCount]
-S_STREET_NAME = 6  # uint32[streetCount]  индекс в таблице строк
-S_STREET_PLACE = 7  # uint32[streetCount] индекс населённого пункта или NO_REF
+S_STREET_NAME = 6  # uint32[streetCount]  index into the string table
+S_STREET_PLACE = 7  # uint32[streetCount] settlement index, or NO_REF
 
-# Дома.
+# Houses.
 S_ADDR_LAT = 8  # int32[addressCount]
 S_ADDR_LON = 9  # int32[addressCount]
-S_ADDR_STREET = 10  # uint32[addressCount]  индекс улицы, всегда задан
+S_ADDR_STREET = 10  # uint32[addressCount]  street index, always set
 S_ADDR_NUM_OFF = 11  # uint32[addressCount+1]
-S_ADDR_NUM = 12  # uint8[...]              номера домов в UTF-8, подряд
+S_ADDR_NUM = 12  # uint8[...]               house numbers in UTF-8, packed
 
-# Таблица строк: названия улиц и населённых пунктов, каждое по одному разу.
+# String table: street and settlement names, each stored once.
 S_STR_OFF = 13  # uint32[stringCount+1]
 S_STR = 14  # uint8[...]
 
-# Достоверность улицы у дома, по одному биту на дом, младший бит первым.
-# 1 — улица пришла из addr:street, 0 — выведена по ближайшей дороге.
-# Тег есть только у 71% домов; остальным улица подобрана геометрически и
-# может быть не той. Навигатору хватает и такой, а библиотека общего
-# назначения обязана дать вызывающему различить факт и догадку.
+# Where each house's street came from, one bit per house, LSB first.
+# 1 - the street came from addr:street, 0 - it was inferred from the
+# nearest road. The tag is present on only 71% of houses; the rest had
+# their street determined geometrically and it may be the wrong one. A
+# general-purpose library has to let the caller tell a fact from a guess.
 S_ADDR_STREET_EXACT = 15  # uint8[ceil(addressCount/8)]
 
 NO_REF = 0xFFFFFFFF
 
-# Тип населённого пункта. Порядок задаёт приоритет в выдаче: город важнее
-# села, село важнее безымянной местности. Позиция — это код на диске,
-# дописывать можно только в конец.
+# The kind of a settlement. The order sets priority in the results: a city
+# outranks a village, a village outranks a nameless locality. The position
+# is the on-disk code, so new kinds may only be appended.
 PLACE_CITY = 0
 PLACE_TOWN = 1
 PLACE_VILLAGE = 2
@@ -76,7 +75,7 @@ PLACE_NEIGHBOURHOOD = 4
 PLACE_HAMLET = 5
 PLACE_LOCALITY = 6
 
-# Что из OSM считаем населённым пунктом.
+# What counts as a settlement in OSM.
 PLACE_TAGS = {
     "city": PLACE_CITY,
     "town": PLACE_TOWN,
@@ -88,20 +87,20 @@ PLACE_TAGS = {
     "locality": PLACE_LOCALITY,
 }
 
-# К какому населённому пункту относить улицу: микрорайон и местность для
-# этого не годятся, адрес привязывают к городу или селу.
+# Which settlement a street may be attached to: a neighbourhood or a
+# locality will not do - an address is bound to a city or a village.
 PLACE_PARENTS = (PLACE_CITY, PLACE_TOWN, PLACE_VILLAGE, PLACE_HAMLET)
 
-# Границы Туркменистана: экстракт захватывает объекты, пересекающие
-# границу, и приносит Махачкалу с Астраханью.
+# Turkmenistan's bounding box: the extract reaches across the border and
+# brings in Makhachkala and Astrakhan.
 BBOX_SOUTH = 35.0
 BBOX_NORTH = 43.0
 BBOX_WEST = 51.0
 BBOX_EAST = 67.0
 
-# Свёртка диакритики. Туркменские названия пишутся через ä, ç, ň, ö, ş, ü,
-# ý, а набирать их на клавиатуре никто не станет — «gorogly» обязан
-# находить «Görogly köçesi».
+# Diacritic folding. Turkmen names use ä, ç, ň, ö, ş, ü, ý and nobody is
+# going to type them on a keyboard - "gorogly" has to find
+# "Görogly köçesi".
 FOLD = str.maketrans({
     "ä": "a", "Ä": "a",
     "ç": "c", "Ç": "c",
@@ -117,17 +116,18 @@ FOLD = str.maketrans({
     "ё": "е", "Ё": "е",
 })
 
-# Что остаётся в ключе кроме букв и цифр: дробь и дефис — часть номера
-# дома («2/4», «12-а»). Запятые, точки, скобки и кавычки становятся
-# разделителями слов, чтобы «par 2/4 1» находило «Parahat 2/4, 1».
+# What survives in a key besides letters and digits: the slash and the
+# hyphen are part of house numbers ("2/4", "12-a"). Commas, periods,
+# brackets and quotes become word separators, so that "par 2/4 1" finds
+# "Parahat 2/4, 1".
 KEPT_PUNCTUATION = "/-"
 
 
 def search_key(*parts):
-    """Ключ, по которому идёт сравнение с введённым текстом.
+    """The key that typed text is compared against.
 
-    Точно та же функция обязана быть в Dart-ридере — иначе набранный
-    текст не сойдётся с тем, во что свёрнуто название.
+    Exactly the same function must exist in the Dart reader, or typed
+    text will not meet what the names were folded into.
     """
     text = " ".join(part for part in parts if part)
     folded = text.lower().translate(FOLD)
