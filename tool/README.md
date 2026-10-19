@@ -9,9 +9,10 @@ python3 -m venv .venv && .venv/bin/pip install osmium
 .venv/bin/python build_address_db.py ../turkmenistan.pbf ../assets/turkmenistan.adb
 ```
 
-The build takes about twelve seconds and prints exactly what it dropped
-and why — junk house numbers, duplicate settlements, houses mapped twice,
-houses with no street nearby.
+The build takes about a minute and prints exactly what it dropped and
+why — junk house numbers, duplicate settlements, houses mapped twice,
+houses with no street nearby, public places without a name, objects
+beyond the border.
 
 `address_db_format.py` and `../lib/src/address_db.dart` describe the same
 binary layout. **Change one and you must change the other**, raising

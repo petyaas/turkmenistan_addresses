@@ -96,6 +96,74 @@ class Address {
   String toString() => '${street.name}, $number';
 }
 
+/// The category of a public place. The position is the code stored in the
+/// file and must match POI_* in `tool/address_db_format.py`: new categories
+/// are only ever appended.
+///
+/// No label comes with it — word it in whatever language you display.
+enum PublicPlaceCategory {
+  airport,
+  railwayStation,
+  busStation,
+  ferryTerminal,
+  hospital,
+  clinic,
+  pharmacy,
+  university,
+  school,
+  kindergarten,
+  government,
+  police,
+  fireStation,
+  postOffice,
+  embassy,
+  bank,
+  fuel,
+  marketplace,
+  mall,
+  hotel,
+  museum,
+  theatre,
+  cinema,
+  library,
+  placeOfWorship,
+  monument,
+  attraction,
+  park,
+  sports,
+  amusement,
+}
+
+/// A named public place — an airport, a station, a hospital, a ministry, a
+/// market: what people search for instead of an address ("Howa menzili",
+/// "Altyn Asyr").
+class PublicPlace {
+  const PublicPlace({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.place,
+    required this.lat,
+    required this.lon,
+  });
+
+  /// Position in the database. Stable for a given file and different after
+  /// a rebuild, like [Place.id].
+  final int id;
+
+  final String name;
+  final PublicPlaceCategory category;
+
+  /// The city or village it lies in; null far from any.
+  final Place? place;
+
+  final double lat;
+  final double lon;
+
+  @override
+  String toString() => place == null ? name : '$name, ${place!.name}';
+}
+
 /// A row of results. Destructure it with `switch`:
 ///
 /// ```dart

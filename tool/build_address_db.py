@@ -7,9 +7,10 @@
 Only what an address search needs goes in:
   * settlements - cities, villages, neighbourhoods;
   * streets - named roads, separated by town;
-  * houses - everything with addr:housenumber, each with its street.
-
-Shops, rivers and monuments stay out: they are not addresses.
+  * houses - everything with addr:housenumber, each with its street;
+  * public places - airports, stations, hospitals, schools, ministries,
+    markets: the named destinations people search for instead of an
+    address. Cafés and shops stay out, see POI_TAGS.
 
 Three things here show up directly in the results:
 
@@ -81,6 +82,24 @@ LOOKUP_CELL_DEG = 0.005
 # Spacing at which a road is sampled into points for nearest-road lookup.
 STREET_SAMPLE_M = 40
 
+# The same public place mapped twice - a node plus an outline, or two
+# outlines - lies within this distance of itself. An airfield's outline
+# has its centroid kilometres away from the terminal node, a station
+# building stands a few hundred metres from the station node, while
+# "Söwda Merkezi" or "Metjit" recur in every town and must not merge.
+POI_DUPLICATE_M = {
+    fmt.POI_AIRPORT: 5000,
+    fmt.POI_RAILWAY_STATION: 1500,
+}
+POI_DUPLICATE_DEFAULT_M = 200
+
+# Where the border polygon has holes - member ways missing from the
+# extract - they are closed with a straight line up to this length.
+BORDER_MAX_GAP_M = 5000
+
+# Height of a latitude band of the border index, in degrees.
+BORDER_BAND_DEG = 0.05
+
 MAX_NAME = 90
 MAX_NUMBER = 24
 
@@ -130,9 +149,103 @@ def point_in_polygon(lat, lon, ring):
     return inside
 
 
-def in_country(lat, lon):
-    return (fmt.BBOX_SOUTH <= lat <= fmt.BBOX_NORTH
-            and fmt.BBOX_WEST <= lon <= fmt.BBOX_EAST)
+class CountryBorder:
+    """Turkmenistan's border polygon, for an inside/outside test.
+
+    The bounding box alone is not enough: it holds Mashhad, the Iranian
+    side of Sarahs and half of Uzbek Khorezm, and their mosques, banks
+    and villages would land in a database of Turkmenistan.
+
+    The extract does not hold the relation whole - a few member ways lie
+    beyond it - so osmium cannot assemble it into an area. The ways are
+    stitched by hand instead, and a hole is closed with a straight line;
+    a few hundred metres of approximated border cost less than either
+    the box or no border at all.
+    """
+
+    def __init__(self, rings):
+        self.rings = rings
+        # Edges grouped by latitude band: a ray from a point only meets
+        # the edges spanning its latitude, a few dozen of seventeen
+        # thousand.
+        self._bands = {}
+        for ring in rings:
+            for i in range(len(ring)):
+                a = ring[i - 1]
+                b = ring[i]
+                low = min(a[0], b[0])
+                high = max(a[0], b[0])
+                for band in range(int(low / BORDER_BAND_DEG),
+                                  int(high / BORDER_BAND_DEG) + 1):
+                    self._bands.setdefault(band, []).append((a, b))
+
+    @classmethod
+    def load(cls, path):
+        relation = None
+        for r in osmium.FileProcessor(path, osmium.osm.RELATION):
+            if (r.tags.get("boundary") == "administrative"
+                    and r.tags.get("admin_level") == "2"
+                    and (r.tags.get("ISO3166-1") == "TM"
+                         or r.tags.get("name:en") == "Turkmenistan")):
+                relation = [m.ref for m in r.members
+                            if m.type == "w" and m.role == "outer"]
+                break
+        if not relation:
+            sys.exit("the extract holds no border relation for Turkmenistan")
+
+        wanted = set(relation)
+        ways = {}
+        processor = osmium.FileProcessor(
+            path, osmium.osm.NODE | osmium.osm.WAY).with_locations()
+        for obj in processor:
+            if obj.is_way() and obj.id in wanted:
+                ways[obj.id] = [(node.location.lat, node.location.lon)
+                                for node in obj.nodes
+                                if node.location.valid()]
+        missing = len(wanted) - len(ways)
+
+        pieces = [ways[ref] for ref in relation if len(ways.get(ref, ())) > 1]
+        rings = []
+        gaps = []
+        while pieces:
+            ring = list(pieces.pop(0))
+            while pieces:
+                end = ring[-1]
+                if haversine_m(end[0], end[1], ring[0][0], ring[0][1]) < 1:
+                    break
+                best = None
+                best_distance = BORDER_MAX_GAP_M
+                for index, piece in enumerate(pieces):
+                    for reverse, point in ((False, piece[0]), (True, piece[-1])):
+                        distance = haversine_m(end[0], end[1], point[0], point[1])
+                        if distance < best_distance:
+                            best_distance = distance
+                            best = (index, reverse)
+                if best is None:
+                    break
+                piece = pieces.pop(best[0])
+                if best[1]:
+                    piece = piece[::-1]
+                if best_distance >= 1:
+                    gaps.append(best_distance)
+                ring.extend(piece)
+            if len(ring) > 2:
+                rings.append(ring)
+        return cls(rings), missing, gaps
+
+    def contains(self, lat, lon):
+        inside = False
+        for (lat_i, lon_i), (lat_j, lon_j) in self._bands.get(
+                int(lat / BORDER_BAND_DEG), ()):
+            if (lat_i > lat) != (lat_j > lat):
+                x = (lon_j - lon_i) * (lat - lat_i) / (lat_j - lat_i) + lon_i
+                if lon < x:
+                    inside = not inside
+        return inside
+
+
+def has_letter(text):
+    return any(character.isalpha() for character in text)
 
 
 class StreetLocator:
@@ -178,11 +291,13 @@ class StreetLocator:
 
 
 class Collector(osmium.SimpleHandler):
-    def __init__(self):
+    def __init__(self, border):
         super().__init__()
+        self.border = border
         self.locator = StreetLocator()
 
         self.places = []  # (type, name, lat, lon)
+        self.pois = []  # (category, name, lat, lon)
         self.street_points = {}  # name -> [(lat, lon)]
         self.buildings = []  # (number, lat, lon, street_tag, ring)
         self.nodes = []  # (number, lat, lon, street_tag)
@@ -190,6 +305,17 @@ class Collector(osmium.SimpleHandler):
         self.skipped_junk = 0
         self.skipped_no_geometry = 0
         self.skipped_outside = 0
+        self.skipped_poi_names = 0
+        self.outside_border = 0
+
+    def in_country(self, lat, lon):
+        if not (fmt.BBOX_SOUTH <= lat <= fmt.BBOX_NORTH
+                and fmt.BBOX_WEST <= lon <= fmt.BBOX_EAST):
+            return False
+        if not self.border.contains(lat, lon):
+            self.outside_border += 1
+            return False
+        return True
 
     def _place(self, tags, lat, lon):
         place_type = fmt.PLACE_TAGS.get(tags.get("place"))
@@ -198,6 +324,18 @@ class Collector(osmium.SimpleHandler):
         name = clean(tags.get("name"))
         if name:
             self.places.append((place_type, name, lat, lon))
+
+    def _poi(self, tags, lat, lon):
+        category = fmt.poi_category(tags)
+        if category is None:
+            return
+        name = clean(tags.get("name"))
+        # Without a name a public place cannot be searched for. A name
+        # without a letter - "5", "#32" - says nothing either.
+        if not name or not has_letter(name):
+            self.skipped_poi_names += 1
+            return
+        self.pois.append((category, name, lat, lon))
 
     def _address(self, tags, lat, lon, ring):
         number = tags.get("addr:housenumber")
@@ -219,11 +357,12 @@ class Collector(osmium.SimpleHandler):
                 self.skipped_no_geometry += 1
             return
         lat, lon = n.location.lat, n.location.lon
-        if not in_country(lat, lon):
+        if not self.in_country(lat, lon):
             if n.tags.get("addr:housenumber"):
                 self.skipped_outside += 1
             return
         self._place(n.tags, lat, lon)
+        self._poi(n.tags, lat, lon)
         self._address(n.tags, lat, lon, None)
 
     def way(self, w):
@@ -241,12 +380,13 @@ class Collector(osmium.SimpleHandler):
         # for an address.
         lat = sum(p[0] for p in ring) / len(ring)
         lon = sum(p[1] for p in ring) / len(ring)
-        if not in_country(lat, lon):
+        if not self.in_country(lat, lon):
             if w.tags.get("addr:housenumber"):
                 self.skipped_outside += 1
             return
 
         self._place(w.tags, lat, lon)
+        self._poi(w.tags, lat, lon)
         self._address(w.tags, lat, lon, ring)
 
         if w.tags.get("highway"):
@@ -358,8 +498,32 @@ def deduplicate_places(places):
     return kept, dropped
 
 
+def deduplicate_pois(pois):
+    """Merges a public place mapped more than once.
+
+    An airport is an aerodrome outline plus a node, a station is a node
+    plus its building: the same category and the same folded name within
+    POI_DUPLICATE_M is one place. The first record survives - nodes are
+    read before ways, and a node stands where the place actually is,
+    while an outline's centroid may fall on the far end of a runway.
+    """
+    kept = []
+    groups = {}
+    dropped = 0
+    for poi in pois:
+        radius = POI_DUPLICATE_M.get(poi[0], POI_DUPLICATE_DEFAULT_M)
+        bucket = groups.setdefault((poi[0], fmt.search_key(poi[1])), [])
+        if any(haversine_m(poi[2], poi[3], lat, lon) <= radius
+               for lat, lon in bucket):
+            dropped += 1
+            continue
+        bucket.append((poi[2], poi[3]))
+        kept.append(poi)
+    return kept, dropped
+
+
 def attach_places(streets, places):
-    """Gives every street the settlement it lies in.
+    """Gives every street (or public place) the settlement it lies in.
 
     A neighbourhood or a locality will not do: an address is bound to a
     city or a village, and "Parahat 4" on its own is not an address.
@@ -477,7 +641,8 @@ def to_le(values):
     return values.tobytes()
 
 
-def write_database(path, places, streets, street_places, addresses):
+def write_database(path, places, streets, street_places, addresses,
+                   pois, poi_places):
     """Writes the sections. Strings are names only, each one stored once."""
     strings = []
     string_index = {}
@@ -524,6 +689,17 @@ def write_database(path, places, streets, street_places, addresses):
         if exact:
             exact_bits[position >> 3] |= 1 << (position & 7)
 
+    poi_lat = array("i")
+    poi_lon = array("i")
+    poi_name = array("I")
+    poi_category = array("B")
+    poi_place = array("I", poi_places)
+    for category, name, lat, lon in pois:
+        poi_lat.append(round(lat * 1e7))
+        poi_lon.append(round(lon * 1e7))
+        poi_name.append(intern(name))
+        poi_category.append(category)
+
     string_off = array("I", [0])
     string_bytes = bytearray()
     for text in strings:
@@ -547,6 +723,11 @@ def write_database(path, places, streets, street_places, addresses):
     sections[fmt.S_STR_OFF] = to_le(string_off)
     sections[fmt.S_STR] = bytes(string_bytes)
     sections[fmt.S_ADDR_STREET_EXACT] = bytes(exact_bits)
+    sections[fmt.S_POI_LAT] = to_le(poi_lat)
+    sections[fmt.S_POI_LON] = to_le(poi_lon)
+    sections[fmt.S_POI_NAME] = to_le(poi_name)
+    sections[fmt.S_POI_CATEGORY] = poi_category.tobytes()
+    sections[fmt.S_POI_PLACE] = to_le(poi_place)
 
     offset = fmt.HEADER_BYTES + fmt.SECTION_TABLE_BYTES
     table = []
@@ -557,7 +738,7 @@ def write_database(path, places, streets, street_places, addresses):
 
     header = bytearray(fmt.HEADER_BYTES)
     struct.pack_into(
-        "<4sIIIII",
+        "<4sIIIIII",
         header,
         0,
         fmt.MAGIC,
@@ -566,6 +747,7 @@ def write_database(path, places, streets, street_places, addresses):
         len(places),
         len(streets),
         len(addresses),
+        len(pois),
     )
 
     with open(path, "wb") as out:
@@ -590,8 +772,17 @@ def main():
     args = parser.parse_args()
 
     started = time.time()
+    print("reading the border...", flush=True)
+    border, missing, gaps = CountryBorder.load(args.pbf)
+    print(f"  rings: {len(border.rings)},"
+          f" points: {sum(len(ring) for ring in border.rings)}", flush=True)
+    if missing:
+        print(f"  member ways missing from the extract: {missing},"
+              f" holes closed: {', '.join(f'{gap:.0f} m' for gap in gaps)}",
+              flush=True)
+
     print("reading the extract...", flush=True)
-    collector = Collector()
+    collector = Collector(border)
     collector.apply_file(args.pbf, locations=True, idx="flex_mem")
     print(f"  settlements: {len(collector.places)},"
           f" named roads: {len(collector.street_points)}", flush=True)
@@ -601,6 +792,8 @@ def main():
         print(f"  junk numbers dropped: {collector.skipped_junk}", flush=True)
     if collector.skipped_outside:
         print(f"  dropped outside the country: {collector.skipped_outside}", flush=True)
+    print(f"  objects beyond the border inside the box:"
+          f" {collector.outside_border}", flush=True)
     if collector.skipped_no_geometry:
         print(f"  skipped without coordinates: {collector.skipped_no_geometry}", flush=True)
 
@@ -631,6 +824,18 @@ def main():
     if without_place:
         print(f"  streets with no settlement: {without_place}", flush=True)
 
+    pois, duplicate_pois = deduplicate_pois(collector.pois)
+    # By category, then by name: every airport is one slice.
+    pois.sort(key=lambda poi: (poi[0], fmt.search_key(poi[1]), poi[1]))
+    poi_places = attach_places(
+        [(name, lat, lon) for _, name, lat, lon in pois], collector.places)
+    print(f"  public places: {len(pois)}"
+          f" (merged twins: {duplicate_pois},"
+          f" dropped without a name: {collector.skipped_poi_names},"
+          f" with no settlement: "
+          f"{sum(1 for index in poi_places if index == fmt.NO_REF)})",
+          flush=True)
+
     # Houses grouped by street: "every house on this street" becomes one
     # contiguous slice, taken by binary search, and it compresses better
     # too. Within a street, by number, the way people read them.
@@ -645,7 +850,8 @@ def main():
 
     print(f"writing {args.out}...", flush=True)
     size, string_count, string_bytes = write_database(
-        args.out, collector.places, streets, street_places, resolved)
+        args.out, collector.places, streets, street_places, resolved,
+        pois, poi_places)
     print(f"  strings in the name table: {string_count}"
           f" ({string_bytes / 1024:.0f} KB)", flush=True)
     print(f"done: {size / 1024:.0f} KB in {time.time() - started:.0f} s",

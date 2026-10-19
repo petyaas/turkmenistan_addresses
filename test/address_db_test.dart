@@ -291,6 +291,118 @@ void main() {
     });
   });
 
+  group('public places', () {
+    test('there are public places, each with a name to search for', () {
+      expect(db.publicPlaceCount, greaterThan(2000));
+      final letter = RegExp(r'\p{L}', unicode: true);
+      for (var i = 0; i < db.publicPlaceCount; i++) {
+        final poi = db.publicPlaceAt(i);
+        expect(letter.hasMatch(poi.name), isTrue,
+            reason: 'the name "${poi.name}" has no letter');
+      }
+    });
+
+    test('an airport is found by what people call it', () {
+      // "Howa menzili" is the airport, not a street named after it in
+      // another town: the place has to be in the database to be found.
+      final hits = db.searchPublicPlaces('howa menzili', limit: 50);
+      expect(hits.map((poi) => poi.name),
+          contains('Aşgabat Halkara Howa Menzili'));
+      // Airports first: the category ranks them above the filling station
+      // "AÝGS 75 Howa Menzili" that shares the words.
+      final firstOther =
+          hits.indexWhere((poi) => poi.category != PublicPlaceCategory.airport);
+      final lastAirport = hits
+          .lastIndexWhere((poi) => poi.category == PublicPlaceCategory.airport);
+      expect(firstOther == -1 || firstOther > lastAirport, isTrue);
+    });
+
+    test('the settlement narrows a place down, as with streets', () {
+      final hits = db.searchPublicPlaces('howa asgabat');
+      expect(hits.first.name, 'Aşgabat Halkara Howa Menzili');
+      expect(hits.first.place?.name, 'Aşgabat');
+    });
+
+    test('categories filter the search', () {
+      final markets = db.searchPublicPlaces('altyn asyr',
+          categories: {PublicPlaceCategory.mall});
+      expect(markets, isNotEmpty);
+      expect(markets.every((poi) => poi.category == PublicPlaceCategory.mall),
+          isTrue);
+    });
+
+    test('every place of a category is one slice', () {
+      final airports = db.publicPlacesOf(PublicPlaceCategory.airport);
+      var total = 0;
+      for (var i = 0; i < db.publicPlaceCount; i++) {
+        if (db.publicPlaceAt(i).category == PublicPlaceCategory.airport) {
+          total++;
+        }
+      }
+      expect(airports.length, total);
+      expect(airports.length, greaterThan(5));
+    });
+
+    test('a place mapped twice is kept once', () {
+      // An airport is an aerodrome outline and a terminal node, a station a
+      // node and its building.
+      final names = db
+          .publicPlacesOf(PublicPlaceCategory.airport)
+          .map((poi) => poi.name)
+          .toList();
+      expect(names.toSet().length, names.length);
+    });
+
+    test('places around a point come nearest first', () {
+      final airport = db.searchPublicPlaces('howa asgabat').first;
+      final near = db.publicPlacesNear(airport.lat, airport.lon,
+          radiusMeters: 3000, limit: 20);
+      expect(near.first.id, airport.id);
+      var previous = -1.0;
+      for (final poi in near) {
+        final distance =
+            distanceMeters(airport.lat, airport.lon, poi.lat, poi.lon);
+        expect(distance, greaterThanOrEqualTo(previous));
+        previous = distance;
+      }
+    });
+
+    test('nothing from across the border', () {
+      // The bounding box holds Mashhad and half of Khorezm: their mosques
+      // and banks must not turn up in a database of Turkmenistan.
+      const mashhad = (36.30, 59.60);
+      const urgench = (41.55, 60.63);
+      for (final city in [mashhad, urgench]) {
+        expect(
+          db.publicPlacesNear(city.$1, city.$2, radiusMeters: 15000),
+          isEmpty,
+        );
+      }
+    });
+
+    test('a version 1 file still opens, with no places', () {
+      // The version 1 layout is the first sixteen sections of version 2.
+      final bytes =
+          Uint8List.fromList(File('assets/turkmenistan.adb').readAsBytesSync());
+      ByteData.view(bytes.buffer).setUint32(4, 1, Endian.little);
+      final old = AddressDatabase.parse(bytes);
+      expect(old.publicPlaceCount, 0);
+      expect(old.searchPublicPlaces('howa'), isEmpty);
+      expect(old.addressCount, db.addressCount);
+      expect(old.search('par 2/4 1').first.title, 'Parahat 2/4, 1');
+    });
+
+    test('a search over places fits inside one frame', () {
+      db.searchPublicPlaces('warm up');
+      final started = Stopwatch()..start();
+      for (var i = 0; i < 20; i++) {
+        db.searchPublicPlaces('howa menzili');
+      }
+      final perQuery = started.elapsedMicroseconds / 20 / 1000;
+      expect(perQuery, lessThan(16));
+    });
+  });
+
   group('normalization', () {
     test('matches the reference from address_db_format.py', () {
       // These pairs were produced by the Python search_key: let them drift

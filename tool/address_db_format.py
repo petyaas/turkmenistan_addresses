@@ -17,19 +17,24 @@ file:
     eight thousand houses share 924 street names.
 
 Hence: a house is a coordinate, a reference to a street and a number; a
-street is a name and a reference to a settlement.
+street is a name and a reference to a settlement; a public place - an
+airport, a station, a hospital - is a coordinate, a name, a category code
+and a reference to a settlement.
 
-File: [32-byte header][section table, 16*8 bytes][sections, 4-byte aligned]
+File: [32-byte header][section table, 21*8 bytes][sections, 4-byte aligned]
 
-There is deliberately no spatial index: with thirteen thousand entries a
+Header: magic, FORMAT_VERSION, SECTION_COUNT, then the number of
+settlements, streets, houses and public places, all uint32.
+
+There is deliberately no spatial index: with twenty thousand entries a
 full scan is cheaper than a grid held in memory.
 """
 
 MAGIC = b"TMAB"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 HEADER_BYTES = 32
-SECTION_COUNT = 16
+SECTION_COUNT = 21
 SECTION_TABLE_BYTES = SECTION_COUNT * 8
 
 # Settlements.
@@ -62,6 +67,14 @@ S_STR = 14  # uint8[...]
 # general-purpose library has to let the caller tell a fact from a guess.
 S_ADDR_STREET_EXACT = 15  # uint8[ceil(addressCount/8)]
 
+# Public places, sorted by category and then by name, so that "every
+# airport" is one contiguous slice.
+S_POI_LAT = 16  # int32[poiCount]
+S_POI_LON = 17  # int32[poiCount]
+S_POI_NAME = 18  # uint32[poiCount]      index into the string table
+S_POI_CATEGORY = 19  # uint8[poiCount]   POI_* below
+S_POI_PLACE = 20  # uint32[poiCount]     settlement index, or NO_REF
+
 NO_REF = 0xFFFFFFFF
 
 # The kind of a settlement. The order sets priority in the results: a city
@@ -91,8 +104,102 @@ PLACE_TAGS = {
 # locality will not do - an address is bound to a city or a village.
 PLACE_PARENTS = (PLACE_CITY, PLACE_TOWN, PLACE_VILLAGE, PLACE_HAMLET)
 
+# The category of a public place. As with PLACE_*, the position is the
+# on-disk code: new categories may only be appended. No label is stored -
+# the reader words a category in whatever language it displays.
+POI_AIRPORT = 0
+POI_RAILWAY_STATION = 1
+POI_BUS_STATION = 2
+POI_FERRY_TERMINAL = 3
+POI_HOSPITAL = 4
+POI_CLINIC = 5
+POI_PHARMACY = 6
+POI_UNIVERSITY = 7
+POI_SCHOOL = 8
+POI_KINDERGARTEN = 9
+POI_GOVERNMENT = 10
+POI_POLICE = 11
+POI_FIRE_STATION = 12
+POI_POST_OFFICE = 13
+POI_EMBASSY = 14
+POI_BANK = 15
+POI_FUEL = 16
+POI_MARKETPLACE = 17
+POI_MALL = 18
+POI_HOTEL = 19
+POI_MUSEUM = 20
+POI_THEATRE = 21
+POI_CINEMA = 22
+POI_LIBRARY = 23
+POI_PLACE_OF_WORSHIP = 24
+POI_MONUMENT = 25
+POI_ATTRACTION = 26
+POI_PARK = 27
+POI_SPORTS = 28
+POI_AMUSEMENT = 29
+
+# Which OSM tags make a public place. The list is ordered: an object
+# carrying several of them takes the first match, so a station that is
+# also tagged as a building is a station, and a hospital with a pharmacy
+# inside is a hospital.
+#
+# Deliberately left out: cafés and shops (there are thousands, and they
+# are not destinations one searches the country for), ATMs, parking,
+# railway=crossing.
+POI_TAGS = [
+    (POI_AIRPORT, "aeroway", ("aerodrome",)),
+    (POI_RAILWAY_STATION, "railway", ("station", "halt")),
+    (POI_RAILWAY_STATION, "building", ("train_station",)),
+    (POI_BUS_STATION, "amenity", ("bus_station",)),
+    (POI_FERRY_TERMINAL, "amenity", ("ferry_terminal",)),
+    (POI_HOSPITAL, "amenity", ("hospital",)),
+    (POI_HOSPITAL, "healthcare", ("hospital",)),
+    (POI_CLINIC, "amenity", ("clinic", "doctors")),
+    (POI_CLINIC, "healthcare", ("clinic", "centre")),
+    (POI_UNIVERSITY, "amenity", ("university", "college")),
+    (POI_SCHOOL, "amenity", ("school",)),
+    (POI_KINDERGARTEN, "amenity", ("kindergarten",)),
+    (POI_EMBASSY, "diplomatic", ("embassy", "consulate")),
+    (POI_EMBASSY, "office", ("diplomatic",)),
+    (POI_EMBASSY, "amenity", ("embassy",)),
+    (POI_GOVERNMENT, "amenity", ("townhall", "courthouse")),
+    (POI_GOVERNMENT, "office", ("government",)),
+    (POI_POLICE, "amenity", ("police",)),
+    (POI_FIRE_STATION, "amenity", ("fire_station",)),
+    (POI_POST_OFFICE, "amenity", ("post_office",)),
+    (POI_MUSEUM, "tourism", ("museum",)),
+    (POI_THEATRE, "amenity", ("theatre", "arts_centre")),
+    (POI_CINEMA, "amenity", ("cinema",)),
+    (POI_LIBRARY, "amenity", ("library",)),
+    (POI_PLACE_OF_WORSHIP, "amenity", ("place_of_worship",)),
+    (POI_AMUSEMENT, "tourism", ("theme_park", "zoo")),
+    (POI_AMUSEMENT, "leisure", ("water_park",)),
+    (POI_SPORTS, "leisure", ("stadium", "sports_centre")),
+    (POI_PARK, "leisure", ("park", "garden")),
+    (POI_MONUMENT, "historic", ("monument", "memorial")),
+    (POI_ATTRACTION, "tourism", ("attraction", "viewpoint")),
+    (POI_HOTEL, "tourism", ("hotel", "hostel", "guest_house", "motel")),
+    (POI_MARKETPLACE, "amenity", ("marketplace",)),
+    (POI_MALL, "shop", ("mall", "department_store", "supermarket")),
+    (POI_PHARMACY, "amenity", ("pharmacy",)),
+    (POI_PHARMACY, "healthcare", ("pharmacy",)),
+    (POI_BANK, "amenity", ("bank",)),
+    (POI_FUEL, "amenity", ("fuel",)),
+]
+
+
+def poi_category(tags):
+    """The POI_* code for an object's tags, or None."""
+    for category, key, values in POI_TAGS:
+        if tags.get(key) in values:
+            return category
+    return None
+
+
 # Turkmenistan's bounding box: the extract reaches across the border and
-# brings in Makhachkala and Astrakhan.
+# brings in Makhachkala and Astrakhan. Only a cheap first test - the box
+# still holds Mashhad and half of Khorezm, so the builder then checks the
+# country's border polygon.
 BBOX_SOUTH = 35.0
 BBOX_NORTH = 43.0
 BBOX_WEST = 51.0

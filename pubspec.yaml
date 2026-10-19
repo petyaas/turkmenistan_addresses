@@ -1,8 +1,9 @@
 name: turkmenistan_addresses
 description: >-
-  Offline address search for Turkmenistan: cities and villages, streets
-  and houses. The database ships inside the package, no network needed.
-version: 1.0.0
+  Offline address search for Turkmenistan: cities and villages, streets,
+  houses and public places. The database ships inside the package, no
+  network needed.
+version: 1.1.0
 repository: https://github.com/petyaas/turkmenistan_addresses
 issue_tracker: https://github.com/petyaas/turkmenistan_addresses/issues
 
